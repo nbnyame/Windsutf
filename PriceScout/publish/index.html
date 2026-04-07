@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PriceScout - Smart Price Comparison</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+            color: #e2e8f0;
+            min-height: 100vh;
+        }
+
+        .app {
+            max-width: 960px;
+            margin: 0 auto;
+            padding: 24px 20px 60px;
+        }
+
+        /* ── Header ── */
+        header {
+            text-align: center;
+            padding: 32px 0 24px;
+        }
+        header h1 {
+            font-size: 2.4rem;
+            font-weight: 800;
+            background: linear-gradient(135deg, #38bdf8, #818cf8, #c084fc);
+            -webkit-background-clip: text;
+            background-clip: text;
+            -webkit-text-fill-color: transparent;
+            letter-spacing: -0.5px;
+        }
+        header p {
+            color: #94a3b8;
+            margin-top: 6px;
+            font-size: 1rem;
+        }
+
+        /* ── Search ── */
+        .search-bar {
+            display: flex;
+            gap: 10px;
+            margin: 28px 0 16px;
+        }
+        .search-bar input {
+            flex: 1;
+            padding: 14px 18px;
+            border-radius: 12px;
+            border: 2px solid #334155;
+            background: #1e293b;
+            color: #f1f5f9;
+            font-size: 1rem;
+            outline: none;
+            transition: border-color .2s;
+        }
+        .search-bar input:focus { border-color: #818cf8; }
+        .search-bar input::placeholder { color: #64748b; }
+        .search-bar button {
+            padding: 0 28px;
+            border-radius: 12px;
+            border: none;
+            background: linear-gradient(135deg, #6366f1, #818cf8);
+            color: #fff;
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: opacity .2s;
+            white-space: nowrap;
+        }
+        .search-bar button:hover { opacity: .9; }
+        .search-bar button:disabled { opacity: .5; cursor: not-allowed; }
+
+        .hint {
+            text-align: center;
+            color: #64748b;
+            font-size: .85rem;
+            margin-bottom: 12px;
+        }
+
+        /* ── Loading ── */
+        .loading { display: none; text-align: center; padding: 48px 0; }
+        .loading.show { display: block; }
+        .spinner {
+            width: 40px; height: 40px;
+            border: 4px solid #334155;
+            border-top-color: #818cf8;
+            border-radius: 50%;
+            animation: spin .8s linear infinite;
+            margin: 0 auto 16px;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+        .loading p { color: #94a3b8; }
+
+        /* ── Empty state ── */
+        .empty {
+            text-align: center;
+            padding: 64px 0;
+            color: #475569;
+        }
+        .empty .icon { font-size: 3rem; margin-bottom: 12px; }
+
+        /* ── Stats ── */
+        .stats {
+            display: none;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 12px;
+            margin-bottom: 24px;
+        }
+        .stats.show { display: grid; }
+        .stat-box {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 16px;
+            text-align: center;
+        }
+        .stat-label { font-size: .75rem; text-transform: uppercase; color: #64748b; letter-spacing: .5px; margin-bottom: 4px; }
+        .stat-value { font-size: 1.5rem; font-weight: 700; }
+        .stat-value.avg { color: #38bdf8; }
+        .stat-value.low { color: #34d399; }
+        .stat-value.high { color: #f87171; }
+        .stat-value.count { color: #c084fc; }
+
+        /* ── Results ── */
+        .results-title {
+            display: none;
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 14px;
+            color: #cbd5e1;
+        }
+        .results-title.show { display: block; }
+
+        .product-list { display: flex; flex-direction: column; gap: 10px; }
+
+        .product-card {
+            display: flex;
+            align-items: center;
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 16px 20px;
+            transition: border-color .2s, transform .15s;
+        }
+        .product-card:hover { border-color: #475569; transform: translateY(-1px); }
+        .product-card.best { border-color: #34d399; }
+
+        .product-rank {
+            width: 32px; height: 32px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 8px;
+            background: #334155;
+            font-weight: 700;
+            font-size: .85rem;
+            color: #94a3b8;
+            margin-right: 16px;
+            flex-shrink: 0;
+        }
+        .product-card.best .product-rank { background: #065f46; color: #34d399; }
+
+        .product-info { flex: 1; min-width: 0; }
+        .product-title {
+            font-weight: 600;
+            font-size: .95rem;
+            color: #e2e8f0;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .product-source {
+            font-size: .8rem;
+            color: #64748b;
+            margin-top: 2px;
+        }
+
+        .product-price {
+            font-size: 1.3rem;
+            font-weight: 700;
+            color: #f1f5f9;
+            margin: 0 20px;
+            white-space: nowrap;
+        }
+        .product-card.best .product-price { color: #34d399; }
+
+        .product-link {
+            padding: 8px 16px;
+            border-radius: 8px;
+            border: 1px solid #475569;
+            background: transparent;
+            color: #94a3b8;
+            text-decoration: none;
+            font-size: .85rem;
+            font-weight: 500;
+            transition: all .2s;
+            white-space: nowrap;
+        }
+        .product-link:hover { background: #334155; color: #e2e8f0; }
+
+        .badge-best {
+            display: inline-block;
+            background: #065f46;
+            color: #34d399;
+            font-size: .7rem;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 4px;
+            margin-left: 8px;
+            vertical-align: middle;
+            text-transform: uppercase;
+        }
+
+        /* ── No-results message ── */
+        .no-results {
+            display: none;
+            text-align: center;
+            padding: 40px 0;
+            color: #94a3b8;
+        }
+        .no-results.show { display: block; }
+        .no-results h3 { color: #e2e8f0; margin-bottom: 8px; }
+
+        /* ── Footer ── */
+        footer {
+            text-align: center;
+            padding: 32px 0 0;
+            color: #475569;
+            font-size: .8rem;
+        }
+
+        /* ── Responsive ── */
+        @media (max-width: 640px) {
+            .stats { grid-template-columns: repeat(2, 1fr); }
+            .product-card { flex-wrap: wrap; gap: 10px; }
+            .product-price { margin: 0; }
+            .product-link { width: 100%; text-align: center; }
+        }
+    </style>
+</head>
+<body>
+<div class="app">
+    <header>
+        <h1>PriceScout</h1>
+        <p>Compare real prices across major retailers</p>
+    </header>
+
+    <div class="search-bar">
+        <input type="text" id="q" placeholder="Search for a product (e.g. wireless mouse, air fryer, running shoes...)" autofocus>
+        <button id="searchBtn" onclick="doSearch()">Search</button>
+    </div>
+    <p class="hint">We search Amazon, eBay, Walmart, Target, Best Buy, Newegg and more to find the best price.</p>
+
+    <div class="loading" id="loading">
+        <div class="spinner"></div>
+        <p>Searching retailers&hellip; this may take a few seconds.</p>
+    </div>
+
+    <div class="empty" id="empty">
+        <div class="icon">&#128269;</div>
+        <p>Enter a product above to compare prices</p>
+    </div>
+
+    <div class="no-results" id="noResults">
+        <h3>No results found</h3>
+        <p>No retailers returned results. Try a different search term.</p>
+    </div>
+
+    <div class="stats" id="stats">
+        <div class="stat-box">
+            <div class="stat-label">Average</div>
+            <div class="stat-value avg" id="sAvg">-</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Lowest</div>
+            <div class="stat-value low" id="sLow">-</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Highest</div>
+            <div class="stat-value high" id="sHigh">-</div>
+        </div>
+        <div class="stat-box">
+            <div class="stat-label">Retailers</div>
+            <div class="stat-value count" id="sCount">-</div>
+        </div>
+    </div>
+
+    <div class="results-title" id="resultsTitle"></div>
+    <div class="product-list" id="productList"></div>
+
+    <footer>PriceScout &middot; Searches 6+ retailers in real time</footer>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const qInput = $('q');
+
+qInput.addEventListener('keydown', e => { if (e.key === 'Enter') doSearch(); });
+
+async function doSearch() {
+    const query = qInput.value.trim();
+    if (!query) return;
+
+    // UI state
+    $('empty').style.display = 'none';
+    $('noResults').className = 'no-results';
+    $('stats').className = 'stats';
+    $('resultsTitle').className = 'results-title';
+    $('productList').innerHTML = '';
+    $('loading').className = 'loading show';
+    $('searchBtn').disabled = true;
+
+    try {
+        const res = await fetch('/api/search', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ query })
+        });
+        const data = await res.json();
+
+        $('loading').className = 'loading';
+        $('searchBtn').disabled = false;
+
+        if (!data.results || data.results.length === 0) {
+            $('noResults').className = 'no-results show';
+            return;
+        }
+
+        // Separate priced vs search-link results
+        const priced = data.results.filter(r => r.price !== null);
+        const links  = data.results.filter(r => r.price === null);
+
+        // Sort priced results lowest first
+        priced.sort((a, b) => a.price - b.price);
+        const sorted = [...priced, ...links];
+        const lowestPrice = priced.length ? priced[0].price : null;
+
+        // Stats
+        if (data.stats && data.stats.count) {
+            const s = data.stats;
+            $('sAvg').textContent = '$' + s.average.toFixed(2);
+            $('sLow').textContent = '$' + s.lowest.toFixed(2);
+            $('sHigh').textContent = '$' + s.highest.toFixed(2);
+            $('sCount').textContent = s.count;
+            $('stats').className = 'stats show';
+        }
+
+        // Title
+        $('resultsTitle').textContent = `Prices for "${query}" — sorted lowest to highest`;
+        $('resultsTitle').className = 'results-title show';
+
+        // Render cards
+        const list = $('productList');
+        sorted.forEach((item, i) => {
+            const hasPrice = item.price !== null;
+            const isBest = hasPrice && item.price === lowestPrice;
+            const card = document.createElement('div');
+            card.className = 'product-card' + (isBest ? ' best' : '');
+            card.innerHTML = `
+                <div class="product-rank">${i + 1}</div>
+                <div class="product-info">
+                    <div class="product-title">${esc(item.title)}${isBest ? '<span class="badge-best">Best Price</span>' : ''}</div>
+                    <div class="product-source">${esc(item.source)}</div>
+                </div>
+                <div class="product-price">${hasPrice ? '$' + item.price.toFixed(2) : 'See site'}</div>
+                <a class="product-link" href="${esc(item.url)}" target="_blank" rel="noopener">${hasPrice ? 'View Product →' : 'Search →'}</a>
+            `;
+            list.appendChild(card);
+        });
+
+    } catch (err) {
+        $('loading').className = 'loading';
+        $('searchBtn').disabled = false;
+        $('noResults').className = 'no-results show';
+        console.error(err);
+    }
+}
+
+function esc(s) {
+    const d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+}
+</script>
+</body>
+</html>

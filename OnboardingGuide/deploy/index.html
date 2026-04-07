@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en" class="">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Winmark Onboarding Guide</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'sans-serif'] },
+          colors: {
+            winmark: {
+              50: '#eff6ff', 100: '#dbeafe', 200: '#bfdbfe', 300: '#93c5fd',
+              400: '#60a5fa', 500: '#1e60a0', 600: '#1a5490', 700: '#154880',
+              800: '#103c70', 900: '#0b3060',
+            },
+          },
+        },
+      },
+    }
+  </script>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body { font-family: 'Inter', sans-serif; }
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: #f1f5f9; }
+    ::-webkit-scrollbar-thumb { background: #94a3b8; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    .page { display: none; }
+    .page.active { display: block; }
+    .chat-panel { transform: translateY(20px); opacity: 0; transition: all 0.3s ease; }
+    .chat-panel.open { transform: translateY(0); opacity: 1; }
+    .fade-in { animation: fadeIn 0.3s ease; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+    .sidebar-link.active { background: #eff6ff; color: #1a5490; border: 1px solid #dbeafe; }
+    .chat-msg a { color: #1e60a0; text-decoration: underline; }
+    .chat-msg strong { font-weight: 600; }
+
+    /* ===== DARK MODE ===== */
+    html.dark body { background-color: #0f172a; }
+    html.dark .bg-white { background-color: #1e293b !important; }
+    html.dark .bg-slate-50 { background-color: #0f172a !important; }
+    html.dark .bg-slate-100 { background-color: #1e293b !important; }
+    html.dark .text-slate-800 { color: #f1f5f9 !important; }
+    html.dark .text-slate-700 { color: #e2e8f0 !important; }
+    html.dark .text-slate-600 { color: #cbd5e1 !important; }
+    html.dark .text-slate-500 { color: #94a3b8 !important; }
+    html.dark .text-slate-400 { color: #64748b !important; }
+    html.dark .border-slate-200 { border-color: #334155 !important; }
+    html.dark .border-slate-100 { border-color: #1e293b !important; }
+    html.dark .shadow-sm { box-shadow: 0 1px 2px 0 rgba(0,0,0,0.4) !important; }
+    html.dark .shadow-md { box-shadow: 0 4px 6px -1px rgba(0,0,0,0.4) !important; }
+    html.dark .shadow-2xl { box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5) !important; }
+    html.dark .sidebar-link.active { background: #1e3a5f !important; color: #93c5fd !important; border-color: #2d4a6f !important; }
+    html.dark .sidebar-link { color: #94a3b8 !important; }
+    html.dark .sidebar-link:hover { background-color: #1e293b !important; }
+    html.dark .hover\:bg-slate-50:hover { background-color: #1e293b !important; }
+    html.dark .hover\:border-winmark-200:hover { border-color: #2d4a6f !important; }
+    html.dark ::-webkit-scrollbar-track { background: #1e293b; }
+    html.dark ::-webkit-scrollbar-thumb { background: #475569; }
+    html.dark ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+    html.dark .bg-winmark-50 { background-color: #0c2d4a !important; }
+    html.dark .text-winmark-700 { color: #93c5fd !important; }
+    html.dark .text-winmark-600 { color: #60a5fa !important; }
+    html.dark .border-winmark-100 { border-color: #1e3a5f !important; }
+    html.dark .border-winmark-200 { border-color: #1e3a5f !important; }
+    html.dark .bg-blue-50 { background-color: rgba(30,58,138,0.15) !important; }
+    html.dark .bg-purple-50 { background-color: rgba(88,28,135,0.15) !important; }
+    html.dark .bg-pink-50 { background-color: rgba(131,24,67,0.15) !important; }
+    html.dark .bg-amber-50 { background-color: rgba(120,53,15,0.15) !important; }
+    html.dark .bg-green-50 { background-color: rgba(20,83,45,0.15) !important; }
+    html.dark .bg-teal-50 { background-color: rgba(19,78,74,0.15) !important; }
+    html.dark .border-amber-200 { border-color: rgba(120,53,15,0.3) !important; }
+    html.dark .text-amber-800 { color: #fbbf24 !important; }
+    html.dark .text-amber-700 { color: #f59e0b !important; }
+    html.dark .text-amber-600 { color: #d97706 !important; }
+    html.dark .text-blue-600 { color: #60a5fa !important; }
+    html.dark .text-purple-600 { color: #a78bfa !important; }
+    html.dark .text-pink-600 { color: #f472b6 !important; }
+    html.dark .text-amber-600 { color: #fbbf24 !important; }
+    html.dark .text-green-600 { color: #4ade80 !important; }
+    html.dark .text-teal-600 { color: #2dd4bf !important; }
+    html.dark .chat-msg a { color: #60a5fa; }
+    html.dark .bg-white\/20 { background-color: rgba(255,255,255,0.15) !important; }
+    html.dark input.bg-slate-50 { background-color: #0f172a !important; color: #e2e8f0 !important; border-color: #334155 !important; }
+    html.dark input::placeholder { color: #64748b !important; }
+  </style>
+</head>
+<body class="bg-slate-50 h-screen flex overflow-hidden">
+
+  <!-- Sidebar -->
+  <aside id="sidebar" class="w-64 bg-white border-r border-slate-200 shadow-sm flex flex-col flex-shrink-0 transition-transform duration-300 lg:translate-x-0 -translate-x-full fixed lg:static inset-y-0 left-0 z-40">
+    <!-- Logo -->
+    <div class="p-6 border-b border-slate-100">
+      <div class="flex items-center gap-3">
+        <div class="w-10 h-10 bg-winmark-500 rounded-xl flex items-center justify-center">
+          <span class="text-white font-bold text-lg">W</span>
+        </div>
+        <div class="flex-1">
+          <h1 class="font-bold text-slate-800 text-sm">Winmark Corp</h1>
+          <p class="text-xs text-slate-500">Onboarding Guide</p>
+        </div>
+        <button onclick="toggleDarkMode()" id="dark-toggle" class="p-2 rounded-lg hover:bg-slate-100 transition-colors" title="Toggle dark mode">
+          <svg id="icon-sun" class="w-4 h-4 text-slate-500 hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+          <svg id="icon-moon" class="w-4 h-4 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+        </button>
+      </div>
+    </div>
+    <!-- Nav -->
+    <nav class="flex-1 p-4 space-y-1 overflow-y-auto" id="nav">
+      <button onclick="navigate('welcome')" data-page="welcome" class="sidebar-link active w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+        Welcome
+      </button>
+      <button onclick="navigate('itsetup')" data-page="itsetup" class="sidebar-link w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-600 hover:bg-slate-50">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+        IT & Technology
+      </button>
+      <button onclick="navigate('hrbenefits')" data-page="hrbenefits" class="sidebar-link w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-600 hover:bg-slate-50">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+        HR & Benefits
+      </button>
+      <button onclick="navigate('facilities')" data-page="facilities" class="sidebar-link w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-600 hover:bg-slate-50">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><line x1="9" y1="6" x2="9" y2="6.01"/><line x1="15" y1="6" x2="15" y2="6.01"/><line x1="9" y1="10" x2="9" y2="10.01"/><line x1="15" y1="10" x2="15" y2="10.01"/><line x1="9" y1="14" x2="9" y2="14.01"/><line x1="15" y1="14" x2="15" y2="14.01"/><line x1="9" y1="18" x2="15" y2="18"/></svg>
+        Facilities
+      </button>
+      <button onclick="navigate('addressbook')" data-page="addressbook" class="sidebar-link w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all text-slate-600 hover:bg-slate-50">
+        <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+        Address Book
+      </button>
+    </nav>
+    <!-- Footer -->
+    <div class="p-4 border-t border-slate-100">
+      <div class="bg-winmark-50 rounded-lg p-3">
+        <p class="text-xs text-winmark-700 font-medium">Need help?</p>
+        <p class="text-xs text-winmark-600 mt-1">Click the chat icon in the bottom right!</p>
+      </div>
+    </div>
+  </aside>
+
+  <!-- Mobile menu toggle -->
+  <button onclick="toggleSidebar()" class="lg:hidden fixed top-4 left-4 z-50 p-2 bg-white rounded-lg shadow-md" id="mobile-menu-btn">
+    <svg class="w-5 h-5 text-slate-600" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+
+  <!-- Main Content -->
+  <main class="flex-1 overflow-y-auto" id="main-content">
+    <div class="max-w-4xl mx-auto px-6 py-8">
+
+      <!-- WELCOME PAGE -->
+      <div id="page-welcome" class="page active fade-in">
+        <div class="bg-gradient-to-br from-winmark-500 to-winmark-700 rounded-2xl p-8 md:p-12 text-white mb-8">
+          <div class="flex items-center gap-2 mb-4">
+            <svg class="w-5 h-5 text-yellow-300" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L15.09 8.26L22 9.27L17 14.14L18.18 21.02L12 17.77L5.82 21.02L7 14.14L2 9.27L8.91 8.26L12 2Z"/></svg>
+            <span class="text-sm font-medium text-winmark-100">Welcome aboard!</span>
+          </div>
+          <h1 class="text-3xl md:text-4xl font-bold mb-3">Welcome to Winmark Corporation</h1>
+          <p class="text-winmark-100 text-lg max-w-2xl">We're thrilled to have you on the team! This onboarding guide will help you get settled and answer your most common questions. Explore the sections below or chat with our onboarding assistant anytime.</p>
+        </div>
+        <h2 class="text-xl font-semibold text-slate-800 mb-4">Quick Start Guide</h2>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          <button onclick="navigate('itsetup')" class="group bg-white rounded-xl p-5 border border-slate-200 hover:border-winmark-200 hover:shadow-md transition-all text-left">
+            <div class="flex items-start gap-4">
+              <div class="p-2.5 rounded-lg bg-purple-50 text-purple-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
+              <div class="flex-1">
+                <div class="flex items-center justify-between"><h3 class="font-semibold text-slate-800">IT & Technology</h3><svg class="w-4 h-4 text-slate-300 group-hover:text-winmark-500 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
+                <p class="text-sm text-slate-500 mt-1">Email setup, VPN, software, and tech support</p>
+              </div>
+            </div>
+          </button>
+          <button onclick="navigate('hrbenefits')" class="group bg-white rounded-xl p-5 border border-slate-200 hover:border-winmark-200 hover:shadow-md transition-all text-left">
+            <div class="flex items-start gap-4">
+              <div class="p-2.5 rounded-lg bg-pink-50 text-pink-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg></div>
+              <div class="flex-1">
+                <div class="flex items-center justify-between"><h3 class="font-semibold text-slate-800">HR & Benefits</h3><svg class="w-4 h-4 text-slate-300 group-hover:text-winmark-500 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
+                <p class="text-sm text-slate-500 mt-1">PTO, insurance, payroll, and company policies</p>
+              </div>
+            </div>
+          </button>
+          <button onclick="navigate('facilities')" class="group bg-white rounded-xl p-5 border border-slate-200 hover:border-winmark-200 hover:shadow-md transition-all text-left">
+            <div class="flex items-start gap-4">
+              <div class="p-2.5 rounded-lg bg-amber-50 text-amber-600"><svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><line x1="9" y1="6" x2="9" y2="6.01"/><line x1="15" y1="6" x2="15" y2="6.01"/><line x1="9" y1="18" x2="15" y2="18"/></svg></div>
+              <div class="flex-1">
+                <div class="flex items-center justify-between"><h3 class="font-semibold text-slate-800">Office & Facilities</h3><svg class="w-4 h-4 text-slate-300 group-hover:text-winmark-500 transition-colors" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></div>
+                <p class="text-sm text-slate-500 mt-1">Parking, break room, office hours, and more</p>
+              </div>
+            </div>
+          </button>
+        </div>
+        <div class="bg-white rounded-xl p-6 border border-slate-200">
+          <h2 class="text-xl font-semibold text-slate-800 mb-3">About Winmark Corporation</h2>
+          <p class="text-slate-600 leading-relaxed mb-4">Winmark Corporation is a leading franchisor of five value-oriented retail store concepts: <strong>Plato's Closet</strong>, <strong>Once Upon A Child</strong>, <strong>Play It Again Sports</strong>, <strong>Style Encore</strong>, and <strong>Music Go Round</strong>. Headquartered in Minneapolis, Minnesota, we are publicly traded on NASDAQ under the ticker <strong>WIN</strong>.</p>
+          <p class="text-slate-600 leading-relaxed">Our mission is to provide quality, value-driven franchise opportunities while promoting sustainability through the resale of gently used merchandise. With over 1,250 franchised stores across North America, we're proud of the community we've built.</p>
+        </div>
+      </div>
+
+
+      <!-- IT & TECHNOLOGY PAGE -->
+      <div id="page-itsetup" class="page fade-in">
+        <div class="mb-8">
+          <div class="flex items-center gap-3 mb-2">
+            <svg class="w-6 h-6 text-winmark-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+            <h1 class="text-2xl font-bold text-slate-800">IT & Technology Setup</h1>
+          </div>
+          <p class="text-slate-500">Everything you need to get your tech up and running.</p>
+        </div>
+        <div class="bg-gradient-to-r from-winmark-500 to-winmark-600 rounded-xl p-5 text-white mb-8">
+          <h2 class="font-semibold text-lg mb-1">IT Help Desk</h2>
+          <p class="text-winmark-100 text-sm mb-3">For any technical issues or questions:</p>
+          <div class="flex flex-wrap gap-4 text-sm">
+            <span class="bg-white/20 px-3 py-1 rounded-full">issupport@winmarkcorporation.com</span>
+          </div>
+        </div>
+        <div class="space-y-4" id="it-sections"></div>
+      </div>
+
+      <!-- HR & BENEFITS PAGE -->
+      <div id="page-hrbenefits" class="page fade-in">
+        <div class="mb-8">
+          <div class="flex items-center gap-3 mb-2">
+            <svg class="w-6 h-6 text-winmark-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+            <h1 class="text-2xl font-bold text-slate-800">HR & Benefits</h1>
+          </div>
+          <p class="text-slate-500">Your compensation, benefits, and company policies at a glance.</p>
+        </div>
+        <div class="bg-amber-50 border border-amber-200 rounded-xl p-4 mb-8">
+          <div class="flex items-start gap-3">
+            <svg class="w-5 h-5 text-amber-600 flex-shrink-0 mt-0.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <div>
+              <h3 class="font-semibold text-amber-800 text-sm">Important Reminder</h3>
+              <p class="text-sm text-amber-700 mt-1">Benefits enrollment must be completed within <strong>30 days</strong> of your start date. Contact HR at <strong>hr@winmarkcorporation.com</strong> if you need help.</p>
+            </div>
+          </div>
+        </div>
+        <div class="space-y-4" id="hr-sections"></div>
+      </div>
+
+      <!-- FACILITIES PAGE -->
+      <div id="page-facilities" class="page fade-in">
+        <div class="mb-8">
+          <div class="flex items-center gap-3 mb-2">
+            <svg class="w-6 h-6 text-winmark-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="4" y="2" width="16" height="20" rx="2" ry="2"/><line x1="9" y1="6" x2="9" y2="6.01"/><line x1="15" y1="6" x2="15" y2="6.01"/><line x1="9" y1="10" x2="9" y2="10.01"/><line x1="15" y1="10" x2="15" y2="10.01"/><line x1="9" y1="14" x2="9" y2="14.01"/><line x1="15" y1="14" x2="15" y2="14.01"/><line x1="9" y1="18" x2="15" y2="18"/></svg>
+            <h1 class="text-2xl font-bold text-slate-800">Office & Facilities</h1>
+          </div>
+          <p class="text-slate-500">Everything about the office, parking, and amenities.</p>
+        </div>
+        <div class="space-y-4" id="facilities-sections"></div>
+      </div>
+
+      <!-- ADDRESS BOOK PAGE -->
+      <div id="page-addressbook" class="page fade-in">
+        <div class="mb-8">
+          <div class="flex items-center gap-3 mb-2">
+            <svg class="w-6 h-6 text-winmark-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            <h1 class="text-2xl font-bold text-slate-800">Address Book</h1>
+          </div>
+          <p class="text-slate-500">Look up employee contact information, phone extensions, and departments.</p>
+        </div>
+        <div class="bg-winmark-50 rounded-xl p-4 border border-winmark-100 mb-6">
+          <div class="flex items-center justify-between flex-wrap gap-3">
+            <div>
+              <h3 class="font-semibold text-winmark-700 text-sm">Winmark Phone Directory</h3>
+              <p class="text-xs text-winmark-600 mt-1">Search by name or department to find contact details.</p>
+            </div>
+            <a href="https://addressbook.winmarkcorporation.com" target="_blank" rel="noopener noreferrer" class="flex items-center gap-1.5 bg-winmark-500 text-white px-4 py-2 rounded-lg text-sm font-medium hover:bg-winmark-600 transition-colors">
+              Open Directory
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>
+          </div>
+        </div>
+        <div class="bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <div class="bg-slate-50 px-4 py-3 border-b border-slate-200 flex items-center justify-between">
+            <span class="text-sm font-medium text-slate-600">Phone Directory</span>
+          </div>
+          <div class="flex flex-col items-center justify-center py-16 px-6 text-center">
+            <div class="w-16 h-16 bg-winmark-50 rounded-2xl flex items-center justify-center mb-4">
+              <svg class="w-8 h-8 text-winmark-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+            </div>
+            <h3 class="text-lg font-semibold text-slate-800 mb-2">Winmark Phone Directory</h3>
+            <p class="text-sm text-slate-500 mb-6 max-w-sm">Search for employees by name or department to find contact details, phone extensions, and more.</p>
+            <a href="https://addressbook.winmarkcorporation.com" target="_blank" rel="noopener noreferrer" class="inline-flex items-center gap-2 bg-winmark-500 text-white px-6 py-3 rounded-lg text-sm font-medium hover:bg-winmark-600 transition-colors shadow-sm">
+              Open Phone Directory
+              <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+            </a>
+          </div>
+        </div>
+      </div>
+
+
+    </div>
+  </main>
+
+  <!-- Chat Bot Toggle -->
+  <button onclick="toggleChat()" id="chat-toggle" class="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full shadow-lg flex items-center justify-center transition-all duration-300 bg-winmark-500 hover:bg-winmark-600">
+    <svg id="chat-icon-open" class="w-6 h-6 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    <svg id="chat-icon-close" class="w-6 h-6 text-white hidden" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  </button>
+
+  <!-- Chat Bot Panel -->
+  <div id="chat-panel" class="chat-panel fixed bottom-24 right-6 z-40 w-[400px] h-[560px] bg-white rounded-2xl shadow-2xl border border-slate-200 flex-col overflow-hidden hidden">
+    <!-- Chat Header -->
+    <div class="bg-winmark-500 px-4 py-3 flex items-center gap-3">
+      <div class="w-8 h-8 bg-white/20 rounded-full flex items-center justify-center">
+        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="3"/></svg>
+      </div>
+      <div>
+        <h3 class="text-white font-semibold text-sm">Onboarding Assistant</h3>
+        <p class="text-winmark-100 text-xs">Ask me anything about getting started</p>
+      </div>
+    </div>
+    <!-- Chat Messages -->
+    <div id="chat-messages" class="flex-1 overflow-y-auto p-4 space-y-4" style="height: calc(100% - 140px);">
+      <div class="flex gap-2">
+        <div class="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
+          <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="3"/></svg>
+        </div>
+        <div class="max-w-[80%] px-3 py-2 rounded-xl rounded-bl-sm bg-slate-100 text-slate-700 text-sm leading-relaxed chat-msg">
+          Hello and welcome to Winmark Corporation! 👋<br><br>
+          I'm your onboarding assistant. I can help you with:<br><br>
+          • <strong>Company information & culture</strong><br>
+          • <strong>IT setup</strong> (email, VPN, software)<br>
+          • <strong>HR policies & benefits</strong><br>
+          • <strong>Office facilities & parking</strong><br>
+          • <strong>Finding coworkers</strong> in the directory<br>
+          • <strong>Training & development</strong><br><br>
+          What would you like to know?
+        </div>
+      </div>
+    </div>
+    <!-- Quick Suggestions -->
+    <div id="chat-suggestions" class="px-4 pb-2">
+      <div class="flex items-center gap-1.5 mb-2">
+        <svg class="w-3 h-3 text-slate-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span class="text-xs text-slate-400">Quick questions:</span>
+      </div>
+      <div class="flex flex-wrap gap-1.5">
+        <button onclick="sendQuick('What should I expect on my first day?')" class="text-xs bg-slate-50 text-slate-600 px-2.5 py-1.5 rounded-full border border-slate-200 hover:bg-winmark-50 hover:text-winmark-600 hover:border-winmark-200 transition-colors">First day?</button>
+        <button onclick="sendQuick('How do I set up my email?')" class="text-xs bg-slate-50 text-slate-600 px-2.5 py-1.5 rounded-full border border-slate-200 hover:bg-winmark-50 hover:text-winmark-600 hover:border-winmark-200 transition-colors">Email setup?</button>
+        <button onclick="sendQuick('What is the PTO policy?')" class="text-xs bg-slate-50 text-slate-600 px-2.5 py-1.5 rounded-full border border-slate-200 hover:bg-winmark-50 hover:text-winmark-600 hover:border-winmark-200 transition-colors">PTO policy?</button>
+        <button onclick="sendQuick('Who is in Technology?')" class="text-xs bg-slate-50 text-slate-600 px-2.5 py-1.5 rounded-full border border-slate-200 hover:bg-winmark-50 hover:text-winmark-600 hover:border-winmark-200 transition-colors">Tech team?</button>
+        <button onclick="sendQuick('Find Brett Heffes')" class="text-xs bg-slate-50 text-slate-600 px-2.5 py-1.5 rounded-full border border-slate-200 hover:bg-winmark-50 hover:text-winmark-600 hover:border-winmark-200 transition-colors">Find employee</button>
+      </div>
+    </div>
+    <!-- Chat Input -->
+    <div class="border-t border-slate-200 p-3">
+      <div class="flex items-center gap-2">
+        <input id="chat-input" type="text" placeholder="Type your question..." class="flex-1 bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-sm text-slate-700 placeholder-slate-400 focus:outline-none focus:ring-2 focus:ring-winmark-300 focus:border-transparent" onkeydown="if(event.key==='Enter')sendMessage()">
+        <button onclick="sendMessage()" class="p-2 bg-winmark-500 text-white rounded-lg hover:bg-winmark-600 transition-colors">
+          <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+<script>
+// ==================== PAGE DATA ====================
+
+const itSections = [
+  { title: 'Email (Microsoft 365)', color: 'bg-blue-50 text-blue-600', items: ['Your corporate email will be pre-configured on your laptop.','Access webmail at https://outlook.office365.com','Sign in with your company credentials (provided by IT on Day 1).','Mobile setup: Download Outlook from App Store or Google Play.'] },
+  { title: 'Password Management', color: 'bg-amber-50 text-amber-600', items: ['Press Ctrl+Alt+Delete → Change Password on your laptop.','Minimum 12 characters with upper/lowercase, numbers, and symbols.','Passwords expire every 90 days.'] },
+  { title: 'Standard Software', color: 'bg-purple-50 text-purple-600', items: ['Microsoft 365 (Outlook, Word, Excel, PowerPoint, Teams)','Department-specific tools (your manager will guide you).','Request additional software via IT Help Desk.'] },
+  { title: 'ISSupport (Internal Support)', color: 'bg-pink-50 text-pink-600', items: ['For any internal issues such as a broken laptop, monitor, or other equipment.','Submit a support request to the ISSupport team for hardware or facility-related problems.','Contact ISSupport for issues like malfunctioning devices, network problems, or workspace repairs.','ISSupport handles all internal company issues — if something breaks, they fix it.','Email: issupport@winmarkcorporation.com'] },
+];
+
+const hrSections = [
+  { title: 'Paid Time Off (PTO)', color: 'bg-blue-50 text-blue-600', items: ['0–2 years: 15 days per year','3–5 years: 20 days per year','6+ years: 25 days per year','Submit requests through Workday, at least 2 weeks in advance.','Up to 5 days can be carried over into the next year.'] },
+  { title: 'Health Insurance', color: 'bg-green-50 text-green-600', items: ['Medical: Multiple plan options (PPO and HDHP)','Dental & Vision: Coverage for you and dependents','HSA/FSA: Tax-advantaged health savings accounts','Life Insurance: Basic coverage provided, supplemental available','Enrollment must be completed within 30 days of start date.'] },
+  { title: 'Retirement — 401(k)', color: 'bg-amber-50 text-amber-600', items: ['Company match up to 4% of your salary','Immediate vesting on your own contributions','Company match vests over 3 years','Enroll through Workday or contact HR for help.'] },
+  { title: 'Payroll', color: 'bg-purple-50 text-purple-600', items: ['Paid bi-weekly on Fridays','Direct deposit set up during first-day HR session','View pay stubs at https://www.adp.com','Questions? Contact hr@winmarkcorporation.com'] },
+  { title: 'Dress Code', color: 'bg-pink-50 text-pink-600', items: ['Business casual: Monday – Thursday','Casual Friday: Jeans are acceptable','Includes slacks, blouses, collared shirts, closed-toe shoes','Avoid athletic wear, flip-flops, or overly casual attire.'] },
+  { title: 'Additional Perks', color: 'bg-teal-50 text-teal-600', items: ['Employee discounts at all Winmark franchise brands','Wellness Program: Gym reimbursement and wellness incentives','Tuition Reimbursement: Up to $5,250/year for approved programs','LinkedIn Learning: Free access to thousands of courses','Mentorship Program: Pair with a senior team member'] },
+];
+
+const facilitiesSections = [
+  { title: 'Office Location', color: 'bg-blue-50 text-blue-600', html: '<p class="text-sm text-slate-600 mb-2"><strong>Winmark Corporation Headquarters</strong><br>605 Highway 169 North, Suite 400<br>Minneapolis, MN 55441</p>' },
+  { title: 'Office Hours', color: 'bg-green-50 text-green-600', html: '<p class="text-sm text-slate-600 mb-2"><strong>Core hours:</strong> 8:00 AM – 5:00 PM, Monday – Friday</p><p class="text-sm text-slate-600 mb-2"><strong>Building access:</strong> 24 hours with your badge</p>' },
+  { title: 'Parking', color: 'bg-amber-50 text-amber-600', html: '<p class="text-sm text-slate-600 mb-2">Free parking is available in the company parking lot adjacent to the building.</p><p class="text-sm text-slate-600 mb-2">No parking permit required. Visitor parking is in the front row.</p>' },
+  { title: 'Break Room & Kitchen', color: 'bg-pink-50 text-pink-600', html: '<p class="text-sm text-slate-600 mb-2">The break room is on the 1st floor and includes:</p><ul class="space-y-1 text-sm text-slate-600 ml-4"><li>• Full kitchen with refrigerator, microwave, and coffee maker</li><li>• Vending machines with snacks and beverages</li><li>• Complimentary coffee, tea, and water</li></ul>' },
+];
+
+// ==================== FAQ DATA (client-side) ====================
+const FAQ_ENTRIES = [
+  { keywords: ["company","winmark","about","what does","overview","history","mission"], question: "What is Winmark Corporation?", answer: "Winmark Corporation is a leading franchisor of five retail store concepts: Plato's Closet, Once Upon A Child, Play It Again Sports, Style Encore, and Music Go Round. We are headquartered in Minneapolis, Minnesota and are publicly traded on NASDAQ under the ticker WIN. Our mission is to provide quality, value-driven franchise opportunities." },
+  { keywords: ["brands","franchises","stores","concepts","plato","once upon","play it again","style encore","music go round"], question: "What brands does Winmark operate?", answer: "Winmark Corporation franchises five retail brands:\n• **Plato's Closet** – Teen and young adult clothing resale\n• **Once Upon A Child** – Children's clothing, toys, and equipment resale\n• **Play It Again Sports** – New and used sporting goods\n• **Style Encore** – Women's clothing and accessories resale\n• **Music Go Round** – New and used musical instruments and gear" },
+  { keywords: ["first day","day one","what to expect","arrive","show up","start"], question: "What should I expect on my first day?", answer: "On your first day:\n1. Arrive at the front desk by 8:30 AM — a team member will greet you.\n2. You'll receive your badge, laptop, and welcome kit.\n3. HR will walk you through paperwork and benefits enrollment.\n4. Your manager will introduce you to your team.\n5. You'll have a lunch buddy assigned to show you around!\n\nDress code for your first day is business casual." },
+  { keywords: ["first week","week one","onboarding schedule","orientation"], question: "What does the first week look like?", answer: "Your first week typically includes:\n• **Day 1** – Welcome, paperwork, IT setup, team introductions\n• **Day 2** – Company overview presentation, compliance training\n• **Day 3** – Department-specific training, meet your mentor\n• **Day 4** – Systems & tools training, begin role-specific tasks\n• **Day 5** – Check-in with your manager, Q&A session\n\nYour manager will share a detailed schedule with you." },
+  { keywords: ["email","outlook","mail","email setup"], question: "How do I set up my email?", answer: "Your corporate email (Outlook/Microsoft 365) will be pre-configured on your laptop. You'll receive your credentials from IT on your first day. To access webmail, go to https://outlook.office365.com and sign in with your company credentials. If you have any issues, contact the IT Help Desk at issupport@winmarkcorporation.com." },
+  { keywords: ["vpn","remote","work from home","connect remotely"], question: "How do I connect to the VPN?", answer: "To connect to the company VPN:\n1. Open the GlobalProtect VPN client (pre-installed on your laptop).\n2. Enter the portal address: vpn.winmarkcorporation.com\n3. Sign in with your network credentials.\n4. Click 'Connect'.\n\nVPN is required when working remotely to access internal systems. Contact ISSupport at issupport@winmarkcorporation.com if you need assistance." },
+  { keywords: ["password","reset","login","credentials","account"], question: "How do I reset my password?", answer: "To reset your password:\n1. Go to https://passwordreset.winmarkcorporation.com\n2. Enter your username and follow the prompts.\n3. You can also press Ctrl+Alt+Delete on your laptop and select 'Change Password'.\n\nPasswords must be at least 12 characters with a mix of upper/lowercase, numbers, and symbols. Passwords expire every 90 days." },
+  { keywords: ["software","install","programs","applications","tools","apps"], question: "What software will I have access to?", answer: "Standard software on your laptop includes:\n• Microsoft 365 (Outlook, Word, Excel, PowerPoint, Teams)\n• Department-specific tools\n\nTo request additional software, submit a ticket to IT via issupport@winmarkcorporation.com." },
+  { keywords: ["teams","microsoft teams","chat","meetings","video call"], question: "How do I use Microsoft Teams?", answer: "Microsoft Teams is our primary communication and collaboration tool. It's pre-installed on your laptop and available on mobile.\n\n• **Chat** – Direct message colleagues or create group chats\n• **Meetings** – Schedule and join video/audio meetings\n• **Channels** – Join your team's channels for project collaboration\n• **Files** – Share and co-edit documents in real-time\n\nYour manager will add you to the relevant team channels." },
+  { keywords: ["pto","vacation","time off","paid time","days off","leave"], question: "What is the PTO policy?", answer: "Winmark's PTO policy:\n• **0-2 years** – 15 days PTO per year\n• **3-5 years** – 20 days PTO per year\n• **6+ years** – 25 days PTO per year\n\nPTO requests should be submitted through Workday at least 2 weeks in advance. PTO accrues per pay period and can be carried over up to 5 days into the next year." },
+  { keywords: ["benefits","health","insurance","medical","dental","vision","401k","retirement"], question: "What benefits does Winmark offer?", answer: "Winmark offers a comprehensive benefits package:\n• **Medical** – Multiple plan options (PPO and HDHP)\n• **Dental & Vision** – Coverage for you and dependents\n• **401(k)** – Company match up to 4% of salary\n• **Life Insurance** – Basic coverage provided, supplemental available\n• **HSA/FSA** – Tax-advantaged health savings accounts\n• **Employee Discount** – Discounts at all Winmark franchise brands\n• **Wellness Program** – Gym reimbursement and wellness incentives\n\nBenefits enrollment must be completed within 30 days of your start date." },
+  { keywords: ["payroll","pay","paycheck","direct deposit","payday","salary"], question: "When and how do I get paid?", answer: "Winmark pays bi-weekly on Fridays. Direct deposit is set up during your first-day HR session. You can view pay stubs and tax documents through ADP (https://www.adp.com). If you have payroll questions, contact hr@winmarkcorporation.com." },
+  { keywords: ["dress code","attire","what to wear","clothing","casual"], question: "What is the dress code?", answer: "Winmark's dress code is **business casual** Monday through Thursday, and **casual Friday** at the end of the week.\n\nBusiness casual includes slacks, blouses, collared shirts, and closed-toe shoes. Jeans are acceptable on Fridays. Please avoid athletic wear, flip-flops, or overly casual attire." },
+  { keywords: ["parking","park","lot","garage","car"], question: "Where do I park?", answer: "Free parking is available in the company parking lot adjacent to the building. No parking permit is required. Visitor parking is in the front row." },
+  { keywords: ["lunch","cafeteria","food","eat","kitchen","break room","vending"], question: "Is there a cafeteria or break room?", answer: "Yes! The break room is on the 1st floor and includes:\n• Full kitchen with refrigerator, microwave, and coffee maker\n• Vending machines with snacks and beverages\n• Complimentary coffee, tea, and water" },
+  { keywords: ["office","building","location","address","headquarters","where"], question: "Where is the office located?", answer: "Winmark Corporation headquarters is located at:\n605 Highway 169 North, Suite 400\nMinneapolis, MN 55441" },
+  { keywords: ["hours","work hours","schedule","work schedule","start time","end time","flexible"], question: "What are the office hours?", answer: "Core office hours are **8:00 AM – 5:00 PM**, Monday through Friday. The building is accessible 24 hours with your badge." },
+  { keywords: ["address book","directory","phone","contact","find someone","employee list","coworker","colleague","phone number","extension"], question: "How do I find a coworker's contact info?", answer: "You can look up any employee's contact information in the **Winmark Phone Directory**:\n👉 https://addressbook.winmarkcorporation.com\n\nSearch by name or department to find phone extensions, email addresses, and office locations. You can also access it from the 'Address Book' section in this onboarding app." },
+  { keywords: ["training","learning","courses","development","grow","education"], question: "What training opportunities are available?", answer: "Winmark invests in employee development:\n• **Required Training** – Compliance, security awareness, and harassment prevention (due in first 30 days)\n• **LinkedIn Learning** – Free access to thousands of online courses\n• **Tuition Reimbursement** – Up to $5,250/year for approved programs\n• **Mentorship Program** – Pair with a senior team member\n• **Lunch & Learns** – Monthly knowledge-sharing sessions\n\nTalk to your manager about creating a personal development plan." },
+  { keywords: ["policy","policies","handbook","rules","guidelines","compliance"], question: "Where can I find company policies?", answer: "The Employee Handbook and all company policies are available on the intranet:\nhttps://intranet.winmarkcorporation.com/policies\n\nKey policies to review in your first week:\n• Code of Conduct\n• Information Security Policy\n• Anti-Harassment Policy\n• Remote Work Policy\n• Social Media Policy\n\nYour HR representative can answer any questions about specific policies." },
+  { keywords: ["expense","reimburse","reimbursement","receipt","travel","spending"], question: "How do I submit expense reports?", answer: "Expense reports are submitted through Concur:\n1. Log in to Concur via https://concur.winmarkcorporation.com\n2. Create a new expense report\n3. Attach receipts (photo or PDF)\n4. Submit for manager approval\n\nReports should be submitted within 30 days of the expense. Reimbursements are processed with the next payroll cycle." },
+  { keywords: ["help","support","who to contact","question","issue","problem","stuck"], question: "Who should I contact for help?", answer: "Here are your key contacts:\n• **IT Help Desk** – issupport@winmarkcorporation.com\n• **HR Department** – hr@winmarkcorporation.com\n• **Your Manager** – Check the Phone Directory for their extension\n\nYou can also find anyone's contact info at https://addressbook.winmarkcorporation.com" },
+  { keywords: ["mentor","buddy","onboarding buddy"], question: "Will I have a mentor or onboarding buddy?", answer: "Yes! Every new hire is assigned:\n• **Onboarding Buddy** – A peer who will help you navigate your first few weeks, show you around, and answer day-to-day questions.\n• **Mentor** (optional) – A senior team member for longer-term career guidance.\n\nYour manager will introduce you to your buddy on Day 1." },
+  { keywords: ["hello","hi","hey","greetings","good morning","good afternoon"], question: "Hello!", answer: "Hello and welcome to Winmark Corporation! 👋\n\nI'm your onboarding assistant. I can help you with:\n• Company information & culture\n• IT setup (email, VPN, software)\n• HR policies & benefits\n• Office facilities & parking\n• Finding coworkers in the directory\n• Training & development\n\nWhat would you like to know?" },
+];
+
+// ==================== FAQ MATCHING (client-side) ====================
+function findBestAnswer(userMessage) {
+  const msgLower = userMessage.toLowerCase().trim();
+  if (!msgLower) return { question: "Empty", answer: "Try asking about company info, IT setup, HR, or facilities!", confidence: 0 };
+
+  let bestMatch = null, bestScore = 0;
+  for (const entry of FAQ_ENTRIES) {
+    let score = 0;
+    for (const kw of entry.keywords) {
+      if (msgLower.includes(kw.toLowerCase())) {
+        score += kw.toLowerCase().split(/\s+/).length;
+      }
+    }
+    if (score > bestScore) { bestScore = score; bestMatch = entry; }
+  }
+  if (bestMatch && bestScore > 0) {
+    return { question: bestMatch.question, answer: bestMatch.answer, confidence: Math.min(bestScore / 3.0, 1.0) };
+  }
+  return {
+    question: userMessage,
+    answer: "I'm not sure about that one! I can help with:\n• **Company info** – Winmark, our brands, mission\n• **IT setup** – Email, software, passwords\n• **Benefits & HR** – PTO, insurance, payroll\n• **Facilities** – Parking, break room, office hours\n• **Address Book** – Coworker contacts\n\nTry rephrasing your question!",
+    confidence: 0,
+  };
+}
+
+// ==================== EMPLOYEE LOOKUP (client-side) ====================
+let _employeeCache = null;
+
+async function fetchEmployees() {
+  if (_employeeCache) return _employeeCache;
+  try {
+    const resp = await fetch("https://addressbook.winmarkcorporation.com/api/employees");
+    const data = await resp.json();
+    _employeeCache = data.employees || [];
+  } catch { _employeeCache = []; }
+  return _employeeCache;
+}
+
+function searchEmployees(employees, query) {
+  const q = query.toLowerCase().trim();
+  const results = [];
+  for (const emp of employees) {
+    let score = 0;
+    const full = ((emp.firstName || '') + ' ' + (emp.lastName || '')).toLowerCase();
+    const first = (emp.firstName || '').toLowerCase();
+    const last = (emp.lastName || '').toLowerCase();
+    const title = (emp.title || '').toLowerCase();
+    const dept = (emp.department || '').toLowerCase();
+    const ext = emp.phoneExtension || '';
+    if (q === full) score += 10;
+    else if (q === last) score += 8;
+    else if (q === first) score += 7;
+    else if (full.includes(q)) score += 5;
+    if (q.includes(dept) || dept.includes(q)) score += 4;
+    if (title.includes(q)) score += 3;
+    if (q === ext) score += 10;
+    if (score > 0) results.push({ score, emp });
+  }
+  results.sort((a, b) => b.score - a.score || (a.emp.lastName || '').localeCompare(b.emp.lastName || ''));
+  return results.slice(0, 10).map(r => r.emp);
+}
+
+function formatEmployeeList(employees) {
+  if (!employees || !employees.length) return null;
+  if (employees.length === 1) {
+    const e = employees[0];
+    const lead = e.isDepartmentLead ? ' ⭐ Department Lead' : '';
+    return `Here's what I found:\n\n**${e.firstName} ${e.lastName}**${lead}\n• Title: ${e.title || 'N/A'}\n• Department: ${e.department || 'N/A'}\n• Extension: ${e.phoneExtension || 'N/A'}\n• Email: ${e.email || 'N/A'}`;
+  }
+  const parts = [`I found ${employees.length} matches:\n`];
+  for (const e of employees) {
+    const lead = e.isDepartmentLead ? ' ⭐' : '';
+    parts.push(`• **${e.firstName} ${e.lastName}**${lead} — ${e.title || 'N/A'}, ${e.department || 'N/A'} (ext. ${e.phoneExtension || 'N/A'})`);
+  }
+  return parts.join('\n');
+}
+
+function detectEmployeeQuery(message) {
+  const msg = message.toLowerCase().trim();
+  const triggers = [
+    "who is ","who's ","find ","look up ","lookup ",
+    "search for ","contact for ","contact info for ",
+    "what is the extension for ","what's the extension for ",
+    "extension for ","ext for ","ext. for ",
+    "what department is ","what dept is ",
+    "who works in ","who is in ","people in ",
+    "employees in ","staff in ","team in ",
+  ];
+  for (const t of triggers) {
+    if (msg.startsWith(t)) return msg.slice(t.length).trim().replace(/\?$/, '').trim();
+  }
+  const deptKw = ["technology","finance","marketing","legal","training","human resources","hr","executive","franchise development","operations","shared services","plato","once upon a child","play it again","music go round","style encore"];
+  for (const dk of deptKw) {
+    if (msg.includes(dk) && ["who","people","team","staff","employees","department","dept"].some(w => msg.includes(w))) return dk;
+  }
+  return null;
+}
+
+// ==================== RENDER FUNCTIONS ====================
+function renderSectionCards(containerId, sections, useHtml = false) {
+  const container = document.getElementById(containerId);
+  container.innerHTML = sections.map(s => `
+    <div class="bg-white rounded-xl border border-slate-200 p-5">
+      <div class="flex items-center gap-3 mb-3">
+        <div class="p-2 rounded-lg ${s.color}">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2M9 5a2 2 0 0 0 2 2h2a2 2 0 0 0 2-2M9 5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2"/></svg>
+        </div>
+        <h3 class="font-semibold text-slate-800">${s.title}</h3>
+      </div>
+      <div class="space-y-1.5">
+        ${useHtml ? s.html : s.items.map(item => `<div class="flex items-start gap-2 text-sm text-slate-600 mb-1.5"><div class="w-1.5 h-1.5 rounded-full bg-slate-300 mt-1.5 flex-shrink-0"></div>${item}</div>`).join('')}
+      </div>
+    </div>
+  `).join('');
+}
+
+
+
+// ==================== NAVIGATION ====================
+function navigate(page) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  document.getElementById('page-' + page).classList.add('active');
+  document.querySelectorAll('.sidebar-link').forEach(l => {
+    l.classList.remove('active');
+    l.classList.add('text-slate-600', 'hover:bg-slate-50');
+  });
+  const activeLink = document.querySelector(`[data-page="${page}"]`);
+  if (activeLink) {
+    activeLink.classList.add('active');
+    activeLink.classList.remove('text-slate-600', 'hover:bg-slate-50');
+  }
+  document.getElementById('main-content').scrollTop = 0;
+  // Close sidebar on mobile
+  if (window.innerWidth < 1024) {
+    document.getElementById('sidebar').classList.add('-translate-x-full');
+  }
+}
+
+function toggleSidebar() {
+  document.getElementById('sidebar').classList.toggle('-translate-x-full');
+}
+
+// ==================== CHAT ====================
+let chatOpen = false;
+
+function toggleChat() {
+  chatOpen = !chatOpen;
+  const panel = document.getElementById('chat-panel');
+  const iconOpen = document.getElementById('chat-icon-open');
+  const iconClose = document.getElementById('chat-icon-close');
+  const toggle = document.getElementById('chat-toggle');
+
+  if (chatOpen) {
+    panel.classList.remove('hidden');
+    panel.classList.add('flex');
+    setTimeout(() => panel.classList.add('open'), 10);
+    iconOpen.classList.add('hidden');
+    iconClose.classList.remove('hidden');
+    toggle.classList.remove('bg-winmark-500', 'hover:bg-winmark-600');
+    toggle.classList.add('bg-slate-600', 'hover:bg-slate-700');
+    document.getElementById('chat-input').focus();
+  } else {
+    panel.classList.remove('open');
+    setTimeout(() => { panel.classList.add('hidden'); panel.classList.remove('flex'); }, 300);
+    iconOpen.classList.remove('hidden');
+    iconClose.classList.add('hidden');
+    toggle.classList.add('bg-winmark-500', 'hover:bg-winmark-600');
+    toggle.classList.remove('bg-slate-600', 'hover:bg-slate-700');
+  }
+}
+
+function formatReply(text) {
+  return text
+    .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\n• /g, '<br>• ')
+    .replace(/\n(\d+)\. /g, '<br>$1. ')
+    .replace(/\n\n/g, '<br><br>')
+    .replace(/\n/g, '<br>')
+    .replace(/(https?:\/\/[^\s<]+)/g, '<a href="$1" target="_blank" rel="noopener noreferrer">$1</a>')
+    .replace(/👉\s*/g, '👉 ');
+}
+
+function addMessage(role, content) {
+  const container = document.getElementById('chat-messages');
+  const isUser = role === 'user';
+  const div = document.createElement('div');
+  div.className = `flex gap-2 ${isUser ? 'flex-row-reverse' : ''} fade-in`;
+  div.innerHTML = `
+    <div class="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 ${isUser ? 'bg-winmark-100 text-winmark-600' : 'bg-slate-100 text-slate-500'}">
+      ${isUser
+        ? '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>'
+        : '<svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="3"/></svg>'
+      }
+    </div>
+    <div class="max-w-[80%] px-3 py-2 rounded-xl text-sm leading-relaxed chat-msg ${isUser ? 'bg-winmark-500 text-white rounded-br-sm' : 'bg-slate-100 text-slate-700 rounded-bl-sm'}">
+      ${isUser ? escapeHtml(content) : formatReply(content)}
+    </div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function addLoading() {
+  const container = document.getElementById('chat-messages');
+  const div = document.createElement('div');
+  div.id = 'chat-loading';
+  div.className = 'flex gap-2 fade-in';
+  div.innerHTML = `
+    <div class="w-7 h-7 rounded-full bg-slate-100 flex items-center justify-center flex-shrink-0">
+      <svg class="w-3.5 h-3.5 text-slate-500" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="11" width="18" height="10" rx="2"/><circle cx="12" cy="5" r="3"/></svg>
+    </div>
+    <div class="bg-slate-100 px-3 py-2 rounded-xl rounded-bl-sm">
+      <div class="flex gap-1"><div class="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style="animation-delay:0s"></div><div class="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style="animation-delay:0.15s"></div><div class="w-2 h-2 bg-slate-300 rounded-full animate-bounce" style="animation-delay:0.3s"></div></div>
+    </div>
+  `;
+  container.appendChild(div);
+  container.scrollTop = container.scrollHeight;
+}
+
+function removeLoading() {
+  const el = document.getElementById('chat-loading');
+  if (el) el.remove();
+}
+
+function escapeHtml(text) {
+  const div = document.createElement('div');
+  div.textContent = text;
+  return div.innerHTML;
+}
+
+async function sendMessage() {
+  const input = document.getElementById('chat-input');
+  const text = input.value.trim();
+  if (!text) return;
+
+  input.value = '';
+  document.getElementById('chat-suggestions').classList.add('hidden');
+  addMessage('user', text);
+  addLoading();
+
+  // Small delay for UX feel
+  await new Promise(r => setTimeout(r, 300));
+
+  // Check for employee lookup first
+  const searchTerm = detectEmployeeQuery(text);
+  if (searchTerm) {
+    const employees = await fetchEmployees();
+    const matches = searchEmployees(employees, searchTerm);
+    const reply = formatEmployeeList(matches);
+    removeLoading();
+    if (reply) {
+      addMessage('bot', reply);
+    } else {
+      addMessage('bot', `I couldn't find anyone matching "${searchTerm}". Try searching by first name, last name, or department (e.g., "Who is in Technology?" or "Find John Smith").`);
+    }
+    input.focus();
+    return;
+  }
+
+  // FAQ matching
+  const result = findBestAnswer(text);
+  removeLoading();
+  addMessage('bot', result.answer);
+  input.focus();
+}
+
+function sendQuick(text) {
+  document.getElementById('chat-input').value = text;
+  sendMessage();
+}
+
+// ==================== DARK MODE ====================
+function toggleDarkMode() {
+  const html = document.documentElement;
+  const isDark = html.classList.toggle('dark');
+  localStorage.setItem('winmark-dark-mode', isDark ? 'true' : 'false');
+  updateDarkIcons(isDark);
+}
+
+function updateDarkIcons(isDark) {
+  document.getElementById('icon-sun').classList.toggle('hidden', !isDark);
+  document.getElementById('icon-moon').classList.toggle('hidden', isDark);
+}
+
+function initDarkMode() {
+  const saved = localStorage.getItem('winmark-dark-mode');
+  const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+  const isDark = saved === 'true' || (saved === null && prefersDark);
+  if (isDark) document.documentElement.classList.add('dark');
+  updateDarkIcons(isDark);
+}
+
+// ==================== INIT ====================
+document.addEventListener('DOMContentLoaded', () => {
+  initDarkMode();
+  renderSectionCards('it-sections', itSections);
+  renderSectionCards('hr-sections', hrSections);
+  renderSectionCards('facilities-sections', facilitiesSections, true);
+});
+</script>
+
+</body>
+</html>
