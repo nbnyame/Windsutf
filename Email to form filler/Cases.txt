@@ -1,0 +1,41 @@
+Case: Install Appointment
+	Subcase: SonicWall, Ingenico (Credit Card Terminal Install), New Store Setup, POS, Server
+
+Case: Locked Buy
+	Subcase: Topay, Toinv, Active, Closed
+
+Case: Dayclose Issue
+	Subcase: Dayclose Failure, File in-use error
+
+Case: DRS Access Issue
+	Subcase: Slow/Freezing computer, Unable to open DRS
+
+Case: Hardware Issue
+	Subcase: Battery Backup, Cash Drawer, POS, Server, Pole display, Scanner, Keyboard, Touchscreen (monitor)
+
+Case: Internal Request
+	Subcase: Brand Standard, Get Data
+
+Case: Internet/Network Issue
+	Subcase: CCT/CDE (Credit Card Terminal issue), SonicWall/FireWall, Internet issue
+
+Case: Inventory Issue
+	Subcase: Datascan, RGIS/WIS
+
+Case: Printer
+	Subcase: Label printer (AKA Sticky, Hardtag, or tag Printer), Receipt, Report/Check
+
+Case: Quote
+	Subcase: New Store, POS, Server, Peripheral (other)
+
+Case: Reports Issue
+	Subcase: Buy Reports, Inventory reports, Reg/Day/Month/Year, other
+
+Case: Software Issue
+	Subcase: Buy system issue, General DRS issue, Software update, Third party, Virus, Windows issue, Other
+
+Case: Winmark Connect
+	Subcase: Questions, issues, Password reset
+
+Case: Question
+	Subcase: Inventory, Operational, Report, Technical, other
