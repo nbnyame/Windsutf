@@ -1,0 +1,94 @@
+2026-04-07 16:20:01,462 [INFO] ============================================================
+2026-04-07 16:20:01,462 [INFO] SharePoint -> CRM Case Poller starting
+2026-04-07 16:20:01,462 [INFO] Poll interval: 10s
+2026-04-07 16:20:01,462 [INFO] SharePoint list: Store info
+2026-04-07 16:20:01,462 [INFO] ============================================================
+Connecting to CRM...
+Authenticating as winmarkcorp.net\nnyamekye via ADFS...
+Successfully authenticated with Dynamics 365 via ADFS.
+2026-04-07 16:20:02,957 [INFO] Graph API token acquired/refreshed.
+2026-04-07 16:20:03,474 [INFO] SharePoint site ID: winmarkcorporation605.sharepoint.com,81debec3-de5e-4c0a-a2e4-a169accd7eff,0a7d98a5-36f6-4a7c-ba46-627aac1278ce
+2026-04-07 16:20:03,941 [INFO] SharePoint list 'Store info' ID: b3b09ab3-003a-4d2f-9a89-367751e23776
+2026-04-07 16:20:03,942 [INFO] Ready. Polling for approved items...
+
+^C2026-04-07 16:26:27,178 [INFO] ============================================================
+2026-04-07 16:26:27,178 [INFO] SharePoint -> CRM Case Poller starting
+2026-04-07 16:26:27,178 [INFO] Poll interval: 10s
+2026-04-07 16:26:27,178 [INFO] SharePoint list: Store info
+2026-04-07 16:26:27,178 [INFO] ============================================================
+Connecting to CRM...
+Authenticating as winmarkcorp.net\nnyamekye via ADFS...
+Successfully authenticated with Dynamics 365 via ADFS.
+2026-04-07 16:26:28,686 [INFO] Graph API token acquired/refreshed.
+2026-04-07 16:26:29,172 [INFO] SharePoint site ID: winmarkcorporation605.sharepoint.com,81debec3-de5e-4c0a-a2e4-a169accd7eff,0a7d98a5-36f6-4a7c-ba46-627aac1278ce
+2026-04-07 16:26:29,653 [INFO] SharePoint list 'Store info' ID: b3b09ab3-003a-4d2f-9a89-367751e23776
+2026-04-07 16:26:29,654 [INFO] Ready. Polling for approved items...
+
+2026-04-07 16:26:51,381 [INFO] Found 1 approved item(s) to process.
+2026-04-07 16:26:51,962 [INFO] Item 444 status updated to 'Processing'.
+2026-04-07 16:26:51,963 [INFO] Creating case for store 21212...
+Found account: Geddes, Francesca (store 21212)
+Case created successfully. ID: fd31c47d-c832-f111-a60c-005056ad6d42
+2026-04-07 16:26:52,789 [INFO] Item 444 status updated to 'Processed'.
+2026-04-07 16:26:52,790 [INFO] Case created for store 21212: fd31c47d-c832-f111-a60c-005056ad6d42
+2026-04-07 16:26:52,790 [INFO] Processed 1 case(s) this cycle.
+
+^C2026-04-07 16:28:50,223 [INFO] ============================================================
+2026-04-07 16:28:50,223 [INFO] SharePoint -> CRM Case Poller starting
+2026-04-07 16:28:50,224 [INFO] Poll interval: 10s
+2026-04-07 16:28:50,224 [INFO] SharePoint list: Store info
+2026-04-07 16:28:50,224 [INFO] ============================================================
+Connecting to CRM...
+Authenticating as winmarkcorp.net\nnyamekye via ADFS...
+Successfully authenticated with Dynamics 365 via ADFS.
+2026-04-07 16:28:51,833 [INFO] Graph API token acquired/refreshed.
+2026-04-07 16:28:52,489 [INFO] SharePoint site ID: winmarkcorporation605.sharepoint.com,81debec3-de5e-4c0a-a2e4-a169accd7eff,0a7d98a5-36f6-4a7c-ba46-627aac1278ce
+2026-04-07 16:28:53,047 [INFO] SharePoint list 'Store info' ID: b3b09ab3-003a-4d2f-9a89-367751e23776
+2026-04-07 16:28:53,048 [INFO] Ready. Polling for approved items...
+
+^C2026-04-07 16:32:42,437 [INFO] ============================================================
+2026-04-07 16:32:42,437 [INFO] SharePoint -> CRM Case Poller starting
+2026-04-07 16:32:42,437 [INFO] Poll interval: 10s
+2026-04-07 16:32:42,437 [INFO] SharePoint list: Store info
+2026-04-07 16:32:42,437 [INFO] ============================================================
+Connecting to CRM...
+Authenticating as winmarkcorp.net\nnyamekye via ADFS...
+Successfully authenticated with Dynamics 365 via ADFS.
+2026-04-07 16:32:43,912 [INFO] Graph API token acquired/refreshed.
+2026-04-07 16:32:44,541 [INFO] SharePoint site ID: winmarkcorporation605.sharepoint.com,81debec3-de5e-4c0a-a2e4-a169accd7eff,0a7d98a5-36f6-4a7c-ba46-627aac1278ce
+2026-04-07 16:32:45,143 [INFO] SharePoint list 'Store info' ID: b3b09ab3-003a-4d2f-9a89-367751e23776
+2026-04-07 16:32:45,144 [INFO] Ready. Polling for approved items...
+
+2026-04-07 16:39:25,111 [INFO] ============================================================
+2026-04-07 16:39:25,111 [INFO] SharePoint -> CRM Case Poller starting
+2026-04-07 16:39:25,111 [INFO] Poll interval: 10s
+2026-04-07 16:39:25,111 [INFO] SharePoint list: Store info
+2026-04-07 16:39:25,111 [INFO] ============================================================
+Connecting to CRM...
+Authenticating as winmarkcorp.net\nnyamekye via ADFS...
+Successfully authenticated with Dynamics 365 via ADFS.
+2026-04-07 16:39:26,615 [INFO] Graph API token acquired/refreshed.
+2026-04-07 16:39:27,107 [INFO] SharePoint site ID: winmarkcorporation605.sharepoint.com,81debec3-de5e-4c0a-a2e4-a169accd7eff,0a7d98a5-36f6-4a7c-ba46-627aac1278ce
+2026-04-07 16:39:27,617 [INFO] SharePoint list 'Store info' ID: b3b09ab3-003a-4d2f-9a89-367751e23776
+2026-04-07 16:39:27,619 [INFO] Ready. Polling for approved items...
+
+2026-04-07 16:39:38,867 [INFO] Found 1 approved item(s) to process.
+2026-04-07 16:39:39,434 [INFO] Item 446 status updated to 'Processing'.
+2026-04-07 16:39:39,435 [INFO] Creating case for store 10242...
+2026-04-07 16:39:39,435 [INFO]   Params: contact=Mark, phone=512-444-2270, subject=Software Issue, case_type=General DRS issue
+Found account: Dorf, Scott (store 10242)
+Case created successfully. ID: e68f3647-ca32-f111-a60c-005056ad6d42
+2026-04-07 16:39:40,114 [INFO] Item 446 status updated to 'Processed'.
+2026-04-07 16:39:40,115 [INFO] Case created for store 10242: e68f3647-ca32-f111-a60c-005056ad6d42
+2026-04-07 16:39:40,115 [INFO] Processed 1 case(s) this cycle.
+
+2026-04-07 16:45:50,281 [INFO] Found 1 approved item(s) to process.
+2026-04-07 16:45:50,864 [INFO] Item 447 status updated to 'Processing'.
+2026-04-07 16:45:50,865 [INFO] Creating case for store 80040...
+2026-04-07 16:45:50,865 [INFO]   Params: contact=Paige, phone=937-427-5224, subject=Software Issue, case_type=Other
+Found account: Finger, Becky (store 80040)
+Case created successfully. ID: a4b1ce24-cb32-f111-a60c-005056ad6d42
+2026-04-07 16:45:51,881 [INFO] Item 447 status updated to 'Processed'.
+2026-04-07 16:45:51,882 [INFO] Case created for store 80040: a4b1ce24-cb32-f111-a60c-005056ad6d42
+2026-04-07 16:45:51,882 [INFO] Processed 1 case(s) this cycle.
+

@@ -223,6 +223,62 @@
         .no-results.show { display: block; }
         .no-results h3 { color: #e2e8f0; margin-bottom: 8px; }
 
+        /* ── Recalls ── */
+        .recalls-section {
+            display: none;
+            margin-bottom: 24px;
+        }
+        .recalls-section.show { display: block; }
+        .recalls-header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 1.1rem;
+            font-weight: 600;
+            margin-bottom: 12px;
+        }
+        .recalls-header .icon { font-size: 1.3rem; }
+        .recalls-header.safe { color: #34d399; }
+        .recalls-header.warn { color: #f87171; }
+        .recall-card {
+            background: #1e293b;
+            border: 1px solid #7f1d1d;
+            border-radius: 12px;
+            padding: 14px 18px;
+            margin-bottom: 8px;
+        }
+        .recall-card .recall-title {
+            font-weight: 600;
+            color: #fca5a5;
+            font-size: .95rem;
+            margin-bottom: 4px;
+        }
+        .recall-card .recall-meta {
+            font-size: .8rem;
+            color: #94a3b8;
+            margin-bottom: 4px;
+        }
+        .recall-card .recall-hazard {
+            font-size: .85rem;
+            color: #f87171;
+        }
+        .recall-card .recall-link {
+            display: inline-block;
+            margin-top: 6px;
+            font-size: .8rem;
+            color: #818cf8;
+            text-decoration: none;
+        }
+        .recall-card .recall-link:hover { text-decoration: underline; }
+        .recall-safe-box {
+            background: #1e293b;
+            border: 1px solid #065f46;
+            border-radius: 12px;
+            padding: 14px 18px;
+            color: #34d399;
+            font-size: .9rem;
+        }
+
         /* ── Footer ── */
         footer {
             text-align: center;
@@ -287,10 +343,15 @@
         </div>
     </div>
 
+    <div class="recalls-section" id="recallsSection">
+        <div class="recalls-header" id="recallsHeader"></div>
+        <div id="recallsList"></div>
+    </div>
+
     <div class="results-title" id="resultsTitle"></div>
     <div class="product-list" id="productList"></div>
 
-    <footer>PriceScout &middot; Searches 6+ retailers in real time</footer>
+    <footer>PriceScout &middot; Searches 6+ retailers in real time &middot; Recall data from CPSC</footer>
 </div>
 
 <script>
@@ -307,6 +368,7 @@ async function doSearch() {
     $('empty').style.display = 'none';
     $('noResults').className = 'no-results';
     $('stats').className = 'stats';
+    $('recallsSection').className = 'recalls-section';
     $('resultsTitle').className = 'results-title';
     $('productList').innerHTML = '';
     $('loading').className = 'loading show';
@@ -370,6 +432,9 @@ async function doSearch() {
             list.appendChild(card);
         });
 
+        // Recalls
+        renderRecalls(data.recalls || [], query);
+
     } catch (err) {
         $('loading').className = 'loading';
         $('searchBtn').disabled = false;
@@ -382,6 +447,35 @@ function esc(s) {
     const d = document.createElement('div');
     d.textContent = s;
     return d.innerHTML;
+}
+
+function renderRecalls(recalls, query) {
+    const section = $('recallsSection');
+    const header = $('recallsHeader');
+    const list = $('recallsList');
+    list.innerHTML = '';
+
+    if (!recalls || recalls.length === 0) {
+        header.className = 'recalls-header safe';
+        header.innerHTML = '<span class="icon">&#9989;</span> No recalls found for "' + esc(query) + '"';
+        list.innerHTML = '<div class="recall-safe-box">We checked the CPSC (Consumer Product Safety Commission) database and found no active recalls matching your search.</div>';
+    } else {
+        header.className = 'recalls-header warn';
+        header.innerHTML = '<span class="icon">&#9888;&#65039;</span> ' + recalls.length + ' recall(s) found for "' + esc(query) + '"';
+        recalls.forEach(r => {
+            const card = document.createElement('div');
+            card.className = 'recall-card';
+            card.innerHTML = `
+                <div class="recall-title">${esc(r.title)}</div>
+                <div class="recall-meta">${r.date ? 'Date: ' + esc(r.date) : ''}</div>
+                ${r.description ? '<div class="recall-meta">' + esc(r.description) + '</div>' : ''}
+                ${r.hazard ? '<div class="recall-hazard">Hazard: ' + esc(r.hazard) + '</div>' : ''}
+                ${r.url ? '<a class="recall-link" href="' + esc(r.url) + '" target="_blank" rel="noopener">View recall details \u2192</a>' : ''}
+            `;
+            list.appendChild(card);
+        });
+    }
+    section.className = 'recalls-section show';
 }
 
 // Heartbeat: tell server we're still alive every 5 seconds

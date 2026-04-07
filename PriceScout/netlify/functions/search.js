@@ -258,6 +258,35 @@ async function searchAll(query) {
   return results;
 }
 
+// ── Recall checker (CPSC SaferProducts.gov) ──
+
+async function checkRecalls(query) {
+  try {
+    const url = `https://www.saferproducts.gov/RestWebServices/Recall?format=json&RecallTitle=${encodeURIComponent(query)}`;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 8000);
+    const r = await fetch(url, { signal: controller.signal });
+    clearTimeout(timer);
+    if (!r.ok) return [];
+    const data = await r.json();
+    return data.slice(0, 5).map((item) => ({
+      title: item.Title || "Unknown Recall",
+      date: item.RecallDate || "",
+      description:
+        item.Products && item.Products.length
+          ? item.Products[0].Description || ""
+          : "",
+      url: item.URL || "",
+      hazard:
+        item.Hazards && item.Hazards.length
+          ? item.Hazards[0].Name || ""
+          : "",
+    }));
+  } catch {
+    return [];
+  }
+}
+
 // ── Netlify handler ──
 
 exports.handler = async (event) => {
@@ -292,7 +321,10 @@ exports.handler = async (event) => {
     };
   }
 
-  const results = await searchAll(query);
+  const [results, recalls] = await Promise.all([
+    searchAll(query),
+    checkRecalls(query),
+  ]);
   const prices = results.filter((r) => r.price !== null).map((r) => r.price);
   let stats = {};
   if (prices.length) {
@@ -313,6 +345,6 @@ exports.handler = async (event) => {
   return {
     statusCode: 200,
     headers,
-    body: JSON.stringify({ query, results, stats }),
+    body: JSON.stringify({ query, results, stats, recalls }),
   };
 };

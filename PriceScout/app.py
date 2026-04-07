@@ -301,6 +301,43 @@ def search_all(query):
 
 
 # ──────────────────────────────────────────────
+# Recall checker (CPSC SaferProducts.gov API)
+# ──────────────────────────────────────────────
+
+def check_recalls(query):
+    """Check the CPSC SaferProducts.gov API for product recalls matching the query."""
+    try:
+        url = f"https://www.saferproducts.gov/RestWebServices/Recall?format=json&RecallTitle={quote_plus(query)}"
+        r = http_requests.get(url, timeout=8)
+        if r.status_code != 200:
+            return []
+        data = r.json()
+        recalls = []
+        for item in data[:5]:  # Limit to 5 most relevant
+            recall = {
+                'title': item.get('Title', 'Unknown Recall'),
+                'date': item.get('RecallDate', ''),
+                'description': '',
+                'url': item.get('URL', ''),
+                'hazard': '',
+            }
+            # Extract hazard description
+            hazards = item.get('Hazards', [])
+            if hazards and isinstance(hazards, list):
+                recall['hazard'] = hazards[0].get('Name', '')
+            # Extract product description
+            products = item.get('Products', [])
+            if products and isinstance(products, list):
+                recall['description'] = products[0].get('Description', '')
+            recalls.append(recall)
+        print(f"  Recall check: {len(recalls)} recall(s) found for '{query}'")
+        return recalls
+    except Exception as e:
+        print(f"  Recall check error: {e}")
+        return []
+
+
+# ──────────────────────────────────────────────
 # Routes
 # ──────────────────────────────────────────────
 
@@ -325,6 +362,7 @@ def search():
         return jsonify({'error': 'Please enter a search term'}), 400
 
     results = search_all(query)
+    recalls = check_recalls(query)
 
     prices = [r['price'] for r in results if r.get('price') is not None]
     stats = {}
@@ -341,6 +379,7 @@ def search():
         'query': query,
         'results': results,
         'stats': stats,
+        'recalls': recalls,
     })
 
 
