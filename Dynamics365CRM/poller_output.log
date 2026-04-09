@@ -654,3 +654,16 @@ Case created successfully. ID: 5859881e-4334-f111-a60c-005056ad6d42
 
 2026-04-09 13:51:58,596 [INFO] Graph API token acquired/refreshed.
 2026-04-09 13:53:02,856 [INFO] Re-authenticating CRM session...
+Connecting to CRM...
+Authenticating as winmarkcorp.net\nnyamekye via ADFS...
+Successfully authenticated with Dynamics 365 via ADFS.
+2026-04-09 14:03:55,154 [INFO] Found 1 approved item(s) to process.
+2026-04-09 14:03:55,746 [INFO] Item 467 status updated to 'Processing'.
+2026-04-09 14:03:55,749 [INFO] Creating case for store 60112...
+2026-04-09 14:03:55,749 [INFO]   Params: contact=Splunk, phone=Store, subject=Splunk - Server Issue, case_type=DRS Messaging Service
+Found account: Dessouki , Nadia (store 60112)
+Case created successfully. ID: 5b100ddb-4634-f111-a60c-005056ad6d42
+2026-04-09 14:03:56,861 [INFO] Item 467 status updated to 'Processed'.
+2026-04-09 14:03:56,862 [INFO] Case created for store 60112: 5b100ddb-4634-f111-a60c-005056ad6d42
+2026-04-09 14:03:56,862 [INFO] Processed 1 case(s) this cycle.
+
