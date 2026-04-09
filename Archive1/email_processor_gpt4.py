@@ -350,9 +350,9 @@ def main():
     print("--------------------------------")
     
     # Get OpenAI API key
-    api_key = "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"
+    api_key = ""
     if not api_key:
-        api_key = "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"
+        api_key = ""
     
     if not api_key:
         print("Error: OpenAI API key is required.")

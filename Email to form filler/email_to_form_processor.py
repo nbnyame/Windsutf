@@ -456,7 +456,7 @@ def main():
     print("-----------------------------")
     
     # Configuration
-    api_key = "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"  # Replace with your actual API key
+    api_key = ""  # Replace with your actual API key
     form_url = "https://forms.office.com/Pages/ResponsePage.aspx?id=PnN2LDxIMk2U0Qan3ue_VElmSxo66JhEmrwPDm5FxfVUMk83RFpEUkpNUFBZSVNORVJRMklDU0hHUi4u"  # Replace with your form URL
     folder_name = "Generated Responses"  # Or specify your folder name
     poll_interval = 15  # Check for new emails every 60 seconds
