@@ -518,6 +518,49 @@ class Dynamics365Client:
         response = self._request("GET", "accounts", params=params)
         return response.json().get("value", [])
 
+    def get_account(self, account_id, select=None):
+        """Retrieve a single account record by GUID."""
+        params = {}
+        if select:
+            params["$select"] = select
+        response = self._request("GET", f"accounts({account_id})", params=params or None)
+        return response.json()
+
+    def update_account(self, account_id, **fields):
+        """Update fields on an existing account record."""
+        response = self._request("PATCH", f"accounts({account_id})", data=fields)
+        if response.status_code == 204:
+            print(f"Account {account_id} updated successfully.")
+            return True
+        raise Exception(f"Failed to update account: {response.text}")
+
+    def get_option_set_values(self, entity_name, field_name):
+        """
+        Fetch the label→value mapping for a PickList (dropdown) field.
+
+        Returns:
+            dict mapping display label (lowercase) to integer option code
+        """
+        endpoint = (
+            f"EntityDefinitions(LogicalName='{entity_name}')"
+            f"/Attributes(LogicalName='{field_name}')"
+            f"/Microsoft.Dynamics.CRM.PicklistAttributeMetadata"
+            f"?$select=LogicalName&$expand=OptionSet"
+        )
+        response = self._request("GET", endpoint)
+        data = response.json()
+        options = data.get("OptionSet", {}).get("Options", [])
+        return {
+            opt["Label"]["UserLocalizedLabel"]["Label"].strip().lower(): opt["Value"]
+            for opt in options
+            if opt.get("Label", {}).get("UserLocalizedLabel")
+        }
+
+    def list_account_fields(self, account_id):
+        """Return all field names and their values for a given account (for discovery)."""
+        response = self._request("GET", f"accounts({account_id})")
+        return response.json()
+
 
 # ─── Convenience CLI ────────────────────────────────────────────────────
 

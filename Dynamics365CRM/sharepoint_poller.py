@@ -4,6 +4,7 @@ Polls a SharePoint list for approved items and creates CRM cases automatically.
 """
 
 import os
+import re
 import sys
 import time
 import logging
@@ -139,22 +140,22 @@ class SharePointPoller:
         site_id = self._discover_site()
         list_id = self._discover_list()
 
-        # Get all items with fields expanded, then filter client-side
-        # (SharePoint choice columns can be tricky with server-side $filter)
+        # Paginate through all items and filter client-side
+        all_approved = []
         url = (
             f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items"
-            f"?$expand=fields&$top=100"
+            f"?$expand=fields&$top=200"
         )
-        resp = requests.get(url, headers=self._graph_headers(), timeout=30)
-        resp.raise_for_status()
-        all_items = resp.json().get("value", [])
-        # Filter for approved items client-side
-        items = [
-            item for item in all_items
-            if str(item.get("fields", {}).get("Status", "")).strip().lower()
-            in ("approved",)
-        ]
-        return items
+        while url:
+            resp = requests.get(url, headers=self._graph_headers(), timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            for item in data.get("value", []):
+                status = str(item.get("fields", {}).get("Status", "")).strip().lower()
+                if status == "approved":
+                    all_approved.append(item)
+            url = data.get("@odata.nextLink")
+        return all_approved
 
     def update_item_status(self, item_id, status, error_msg=None):
         """Update the Status column of a SharePoint list item."""
@@ -177,16 +178,28 @@ class SharePointPoller:
         """Map SharePoint list fields to CRM case parameters."""
         # Build received_on from Dateandtime + Time columns
         date_val = fields.get("Dateandtime", "")
-        time_val = fields.get("Time", "")
+        time_val = str(fields.get("Time", "")).strip()
         received_on = None
         if date_val:
             try:
-                if "T" in str(date_val):
-                    dt = datetime.fromisoformat(str(date_val).replace("Z", ""))
+                date_str = str(date_val).strip()
+                if "T" in date_str:
+                    dt = datetime.fromisoformat(date_str.replace("Z", ""))
                     date_str = dt.strftime("%m/%d/%Y")
-                else:
-                    date_str = str(date_val)
-                if time_val:
+
+                # Check if date already contains a time (e.g. "4/13/2026 6:00 am")
+                has_time = bool(re.search(r'\d{1,2}:\d{2}\s*[AaPp][Mm]', date_str))
+
+                if has_time:
+                    # Date already has time embedded, use as-is
+                    # Extract just date + first time occurrence
+                    m = re.match(r'(\d{1,2}/\d{1,2}/\d{4}\s+\d{1,2}:\d{2}\s*[AaPp][Mm])', date_str)
+                    received_on = m.group(1) if m else date_str
+                elif time_val:
+                    # Clean duplicated time values (e.g. "06:00 am 06:00 am")
+                    time_match = re.match(r'(\d{1,2}:\d{2}\s*[AaPp][Mm])', time_val)
+                    if time_match:
+                        time_val = time_match.group(1)
                     received_on = f"{date_str} {time_val}"
                 else:
                     received_on = date_str
@@ -207,9 +220,12 @@ class SharePointPoller:
 
         # Map priority text/code to CRM code
         priority_map = {
-            "high": 1, "h": 1,
-            "normal": 2, "n": 2, "m": 2, "medium": 2,
-            "low": 3, "l": 3,
+            "normal": 2, "n": 2,
+            "emergency": 100000000, "e": 100000000,
+            "immediate": 100000001, "i": 100000001,
+            "development": 100000002, "d": 100000002,
+            "moderate": 100000003, "m": 100000003,
+            "customer service": 100000004, "c": 100000004,
         }
         priority_text = str(fields.get("Priority", "normal")).strip().lower()
         priority_code = priority_map.get(priority_text, 2)
