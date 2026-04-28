@@ -28,6 +28,10 @@ SHAREPOINT_HOSTNAME = "winmarkcorporation605.sharepoint.com"
 SHAREPOINT_SITE_PATH = "/sites/MarketingTemp"
 SHAREPOINT_LIST_NAME = os.getenv("SHAREPOINT_LIST_NAME", "Store info")
 
+# Draft email settings
+DRAFT_SOURCE_MAILBOX = os.getenv("DRAFT_SOURCE_MAILBOX", "nnyamekye@winmarkcorporation.com")
+DRAFT_TARGET_MAILBOX = os.getenv("DRAFT_TARGET_MAILBOX", "supportcenter@winmarkcorporation.com")
+
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
 # ─── Logging ─────────────────────────────────────────────────────────────
@@ -119,18 +123,23 @@ class SharePointPoller:
 
         site_id = self._discover_site()
         url = f"{GRAPH_BASE}/sites/{site_id}/lists"
-        resp = requests.get(url, headers=self._graph_headers(), timeout=30)
-        resp.raise_for_status()
-
-        for lst in resp.json().get("value", []):
-            if lst["displayName"].lower() == SHAREPOINT_LIST_NAME.lower():
-                self.list_id = lst["id"]
-                log.info(f"SharePoint list '{SHAREPOINT_LIST_NAME}' ID: {self.list_id}")
-                return self.list_id
+        all_lists = []
+        while url:
+            resp = requests.get(url, headers=self._graph_headers(), timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            page_lists = data.get("value", [])
+            all_lists.extend(page_lists)
+            for lst in page_lists:
+                if lst["displayName"].lower() == SHAREPOINT_LIST_NAME.lower():
+                    self.list_id = lst["id"]
+                    log.info(f"SharePoint list '{SHAREPOINT_LIST_NAME}' ID: {self.list_id}")
+                    return self.list_id
+            url = data.get("@odata.nextLink")
 
         raise ValueError(
             f"List '{SHAREPOINT_LIST_NAME}' not found. "
-            f"Available: {[l['displayName'] for l in resp.json().get('value', [])]}"
+            f"Available: {[l['displayName'] for l in all_lists]}"
         )
 
     # ─── Read / Update Items ─────────────────────────────────────────────
@@ -164,12 +173,14 @@ class SharePointPoller:
 
         url = f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items/{item_id}/fields"
         fields = {"Status": status}
+        if error_msg:
+            fields["ErrorMessage"] = str(error_msg)
 
         resp = requests.patch(
             url, headers=self._graph_headers(), json=fields, timeout=30
         )
         resp.raise_for_status()
-        log.info(f"Item {item_id} status updated to '{status}'.")
+        log.info(f"Item {item_id} status updated to '{status}'.") 
 
     # ─── Map SharePoint → CRM ────────────────────────────────────────────
 
@@ -249,6 +260,111 @@ class SharePointPoller:
             "priority": priority_code,
         }
 
+    # ─── Draft Email Management ─────────────────────────────────────────
+
+    def move_draft_to_shared(self, recipient_email):
+        """
+        Find a draft in the source mailbox addressed to recipient_email
+        and move it to the Drafts folder of the shared mailbox.
+
+        Returns the moved message ID, or None if no matching draft found.
+        """
+        headers = self._graph_headers()
+
+        target_email = recipient_email.strip().lower()
+        matched_msg = None
+
+        # Paginate through drafts ordered by most recent first
+        drafts_url = (
+            f"{GRAPH_BASE}/users/{DRAFT_SOURCE_MAILBOX}/mailFolders/Drafts/messages"
+            f"?$top=50&$select=id,subject,toRecipients,createdDateTime"
+            f"&$orderby=createdDateTime desc"
+        )
+        while drafts_url and not matched_msg:
+            resp = requests.get(drafts_url, headers=headers, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            for msg in data.get("value", []):
+                recipients = [
+                    r["emailAddress"]["address"].lower()
+                    for r in msg.get("toRecipients", [])
+                    if r.get("emailAddress", {}).get("address")
+                ]
+                if target_email in recipients:
+                    matched_msg = msg
+                    break
+            drafts_url = data.get("@odata.nextLink")
+
+        if not matched_msg:
+            log.warning(
+                f"  No draft found in {DRAFT_SOURCE_MAILBOX} "
+                f"addressed to '{recipient_email}'."
+            )
+            return None
+
+        msg_id = matched_msg["id"]
+        log.info(
+            f"  Found draft: '{matched_msg.get('subject', '?')}' "
+            f"-> moving to {DRAFT_TARGET_MAILBOX} Drafts"
+        )
+
+        # Get the Drafts folder ID of the shared mailbox
+        folder_resp = requests.get(
+            f"{GRAPH_BASE}/users/{DRAFT_TARGET_MAILBOX}/mailFolders/Drafts"
+            f"?$select=id",
+            headers=headers, timeout=30,
+        )
+        folder_resp.raise_for_status()
+        target_folder_id = folder_resp.json()["id"]
+
+        # Copy the draft to the shared mailbox Drafts folder
+        # (Graph API cannot move across mailboxes, so we copy then delete)
+
+        # Step 1: Read the full draft message
+        full_msg_resp = requests.get(
+            f"{GRAPH_BASE}/users/{DRAFT_SOURCE_MAILBOX}/messages/{msg_id}"
+            f"?$select=subject,body,toRecipients,ccRecipients,bccRecipients,"
+            f"from,replyTo,importance,categories",
+            headers=headers, timeout=30,
+        )
+        full_msg_resp.raise_for_status()
+        original = full_msg_resp.json()
+
+        # Step 2: Create the draft in the shared mailbox Drafts folder
+        new_draft = {
+            "subject": original.get("subject", ""),
+            "body": original.get("body", {}),
+            "toRecipients": original.get("toRecipients", []),
+            "ccRecipients": original.get("ccRecipients", []),
+            "bccRecipients": original.get("bccRecipients", []),
+            "importance": original.get("importance", "normal"),
+            "from": {
+                "emailAddress": {
+                    "address": DRAFT_TARGET_MAILBOX,
+                    "name": "Winmark Support Center",
+                }
+            },
+        }
+
+        create_resp = requests.post(
+            f"{GRAPH_BASE}/users/{DRAFT_TARGET_MAILBOX}/mailFolders/{target_folder_id}/messages",
+            headers=headers, json=new_draft, timeout=30,
+        )
+        create_resp.raise_for_status()
+        new_msg_id = create_resp.json().get("id", "?")
+
+        # Step 3: Delete the original draft from personal mailbox
+        del_resp = requests.delete(
+            f"{GRAPH_BASE}/users/{DRAFT_SOURCE_MAILBOX}/messages/{msg_id}",
+            headers=headers, timeout=30,
+        )
+        if del_resp.status_code in (200, 204):
+            log.info(f"  Draft moved successfully (new ID: {new_msg_id[:20]}...)")
+        else:
+            log.warning(f"  Draft copied but failed to delete original: {del_resp.status_code}")
+
+        return new_msg_id
+
     # ─── Main Loop ───────────────────────────────────────────────────────
 
     def process_approved_items(self, crm_client):
@@ -282,6 +398,31 @@ class SharePointPoller:
                          f"case_type={case_params.get('case_type')}")
 
                 result = crm_client.create_case(**case_params)
+
+                # Add note from Full Message column if present
+                full_message = str(fields.get("FullMessage", "")).strip()
+                if full_message and result.get("case_id"):
+                    try:
+                        crm_client.create_note(
+                            result["case_id"],
+                            text=full_message,
+                            subject="Full Message",
+                        )
+                        log.info(f"  Note added to case.")
+                    except Exception as e:
+                        log.warning(f"  Failed to add note: {e}")
+
+                # Move draft reply to shared mailbox if DraftReply is True
+                draft_reply = fields.get("DraftReply", False)
+                if draft_reply:
+                    recipient_email = str(fields.get("emailaddress", "")).strip()
+                    if recipient_email:
+                        try:
+                            self.move_draft_to_shared(recipient_email)
+                        except Exception as e:
+                            log.warning(f"  Failed to move draft: {e}")
+                    else:
+                        log.warning(f"  DraftReply=True but no email address on item.")
 
                 # Mark as processed
                 self.update_item_status(item_id, "Processed")

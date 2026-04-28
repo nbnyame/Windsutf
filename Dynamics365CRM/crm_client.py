@@ -7,7 +7,7 @@ import os
 import re
 import json
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urljoin
 from html.parser import HTMLParser
 from dotenv import load_dotenv
@@ -324,7 +324,12 @@ class Dynamics365Client:
 
     @staticmethod
     def parse_received_on(value):
-        """Parse a received-on datetime string to ISO 8601 UTC format."""
+        """Parse a received-on datetime string to ISO 8601 UTC format.
+        
+        SharePoint times are in US Central time. CRM expects UTC.
+        We apply the Central timezone offset (CDT=-5, CST=-6) so CRM
+        displays the correct local time.
+        """
         formats = [
             "%m/%d/%Y %I:%M %p",
             "%m/%d/%Y %I:%M:%S %p",
@@ -333,8 +338,25 @@ class Dynamics365Client:
         ]
         for fmt in formats:
             try:
-                dt = datetime.strptime(value.strip(), fmt)
-                return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+                naive_dt = datetime.strptime(value.strip(), fmt)
+                # Compute actual DST transition for this year:
+                # CDT starts 2nd Sunday of March at 2:00 AM (UTC-5)
+                # CST starts 1st Sunday of November at 2:00 AM (UTC-6)
+                year = naive_dt.year
+                mar_1 = datetime(year, 3, 1)
+                cdt_start = mar_1 + timedelta(days=(6 - mar_1.weekday()) % 7 + 7)
+                cdt_start = cdt_start.replace(hour=2)
+                nov_1 = datetime(year, 11, 1)
+                cst_start = nov_1 + timedelta(days=(6 - nov_1.weekday()) % 7)
+                cst_start = cst_start.replace(hour=2)
+                if cdt_start <= naive_dt < cst_start:
+                    offset_hours = -5  # CDT
+                else:
+                    offset_hours = -6  # CST
+                local_tz = timezone(timedelta(hours=offset_hours))
+                local_dt = naive_dt.replace(tzinfo=local_tz)
+                utc_dt = local_dt.astimezone(timezone.utc)
+                return utc_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
             except ValueError:
                 continue
         raise ValueError(
@@ -416,7 +438,7 @@ class Dynamics365Client:
 
         response = self._request("POST", "incidents", data=case_data)
 
-        if response.status_code in (201, 204):
+        if response.status_code in (200, 201, 204):
             case_id = response.headers.get("OData-EntityId", "")
             # Extract GUID from the entity URL
             if "(" in case_id:
@@ -425,6 +447,31 @@ class Dynamics365Client:
             return {"case_id": case_id, "description": description, "status": "created"}
         else:
             raise Exception(f"Failed to create case: {response.text}")
+
+    def create_note(self, case_id, text, subject=None):
+        """
+        Add a note (annotation) to a case.
+
+        Args:
+            case_id: GUID of the case to attach the note to
+            text: Note body text (notetext)
+            subject: Optional note subject line
+        """
+        note_data = {
+            "objectid_incident@odata.bind": f"/incidents({case_id})",
+            "notetext": text,
+        }
+        if subject:
+            note_data["subject"] = subject
+
+        response = self._request("POST", "annotations", data=note_data)
+        if response.status_code in (200, 201, 204):
+            note_id = response.headers.get("OData-EntityId", "")
+            if "(" in note_id:
+                note_id = note_id.split("(")[-1].rstrip(")")
+            return note_id
+        else:
+            raise Exception(f"Failed to create note: {response.text}")
 
     def get_case(self, case_id):
         """Retrieve a single case by its GUID."""
