@@ -365,6 +365,108 @@ class Dynamics365Client:
 
     # ─── Case Management ────────────────────────────────────────────────
 
+    def find_active_case_today(self, store_number):
+        """
+        Check if an active or resolved case exists for the given store number
+        created today.
+
+        Returns dict with 'case_id', 'ticketnumber' and 'owner_name' if found, else None.
+        """
+        today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        params = {
+            "$filter": (
+                f"(statecode eq 0 or statecode eq 1) "
+                f"and win_storenumber eq '{store_number}' "
+                f"and createdon ge {today_utc}T00:00:00Z "
+                f"and createdon lt {today_utc}T23:59:59Z"
+            ),
+            "$select": "incidentid,ticketnumber,win_storenumber,win_subject,win_receivedon,createdon,_ownerid_value",
+            "$top": 1,
+            "$orderby": "createdon desc",
+        }
+        response = self._request("GET", "incidents", params=params)
+        cases = response.json().get("value", [])
+        if not cases:
+            return None
+
+        case = cases[0]
+        owner_name = case.get(
+            "_ownerid_value@OData.Community.Display.V1.FormattedValue", ""
+        )
+        return {
+            "case_id": case.get("incidentid", ""),
+            "ticketnumber": case.get("ticketnumber", ""),
+            "owner_name": owner_name,
+            "received_on": case.get("win_receivedon", ""),
+        }
+
+    def find_active_case_by_subject(self, store_number, subject_code):
+        """
+        Check if an active case exists for the given store number with the
+        same win_subject option set code (any date).
+
+        Returns dict with 'case_id', 'ticketnumber' and 'owner_name' if found, else None.
+        """
+        params = {
+            "$filter": (
+                f"statecode eq 0 "
+                f"and win_storenumber eq '{store_number}' "
+                f"and win_subject eq {subject_code}"
+            ),
+            "$select": "incidentid,ticketnumber,win_storenumber,win_subject,createdon,_ownerid_value",
+            "$top": 1,
+            "$orderby": "createdon desc",
+        }
+        response = self._request("GET", "incidents", params=params)
+        cases = response.json().get("value", [])
+        if not cases:
+            return None
+
+        case = cases[0]
+        owner_name = case.get(
+            "_ownerid_value@OData.Community.Display.V1.FormattedValue", ""
+        )
+        return {
+            "case_id": case.get("incidentid", ""),
+            "ticketnumber": case.get("ticketnumber", ""),
+            "owner_name": owner_name,
+        }
+
+    def find_resolved_case_today_by_subject(self, store_number, subject_code):
+        """
+        Check if a resolved case exists for the given store number created today
+        with the same win_subject option set code.
+
+        Returns dict with 'case_id', 'ticketnumber' and 'owner_name' if found, else None.
+        """
+        today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        params = {
+            "$filter": (
+                f"statecode eq 1 "
+                f"and win_storenumber eq '{store_number}' "
+                f"and win_subject eq {subject_code} "
+                f"and createdon ge {today_utc}T00:00:00Z "
+                f"and createdon lt {today_utc}T23:59:59Z"
+            ),
+            "$select": "incidentid,ticketnumber,win_storenumber,win_subject,createdon,_ownerid_value",
+            "$top": 1,
+            "$orderby": "createdon desc",
+        }
+        response = self._request("GET", "incidents", params=params)
+        cases = response.json().get("value", [])
+        if not cases:
+            return None
+
+        case = cases[0]
+        owner_name = case.get(
+            "_ownerid_value@OData.Community.Display.V1.FormattedValue", ""
+        )
+        return {
+            "case_id": case.get("incidentid", ""),
+            "ticketnumber": case.get("ticketnumber", ""),
+            "owner_name": owner_name,
+        }
+
     def lookup_account_by_store(self, store_number):
         """Look up an account by its store number (win_storenumber)."""
         params = {

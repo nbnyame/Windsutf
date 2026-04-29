@@ -9,7 +9,7 @@ import sys
 import time
 import logging
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -165,6 +165,15 @@ class SharePointPoller:
                     all_approved.append(item)
             url = data.get("@odata.nextLink")
         return all_approved
+
+    def update_item_fields(self, item_id, **field_values):
+        """Update arbitrary fields on a SharePoint list item."""
+        site_id = self._discover_site()
+        list_id = self._discover_list()
+        url = f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items/{item_id}/fields"
+        resp = requests.patch(url, headers=self._graph_headers(),
+                              json=field_values, timeout=30)
+        resp.raise_for_status()
 
     def update_item_status(self, item_id, status, error_msg=None):
         """Update the Status column of a SharePoint list item."""
@@ -391,12 +400,122 @@ class SharePointPoller:
 
                 # Map fields and create case
                 case_params = self.map_item_to_case(fields)
-                log.info(f"Creating case for store {case_params['store_number']}...")
+                log.info(f"Processing store {case_params['store_number']}...")
                 log.info(f"  Params: contact={case_params.get('contact')}, "
                          f"phone={case_params.get('contact_phone')}, "
                          f"subject={case_params.get('subject')}, "
                          f"case_type={case_params.get('case_type')}")
 
+                # Check 1: active case for same store created today
+                existing = crm_client.find_active_case_today(case_params["store_number"])
+                dup_reason = "same-day"
+                is_exact_duplicate = False
+                subject_code = None
+
+                if existing:
+                    # Check if received-on times are within 5 minutes
+                    new_received_on_raw = case_params.get("received_on", "")
+                    existing_received_on = existing.get("received_on", "")
+                    if new_received_on_raw and existing_received_on:
+                        try:
+                            # Convert new received-on to UTC (same as CRM stores it)
+                            new_received_utc = crm_client.parse_received_on(new_received_on_raw)
+                            new_dt = datetime.strptime(new_received_utc, "%Y-%m-%dT%H:%M:%SZ")
+                            ext_dt = datetime.strptime(existing_received_on, "%Y-%m-%dT%H:%M:%SZ")
+                            log.info(f"  Time comparison: new={new_received_utc} existing={existing_received_on} diff={abs(new_dt - ext_dt)}")
+                            if abs(new_dt - ext_dt) <= timedelta(minutes=5):
+                                is_exact_duplicate = True
+                                dup_reason = "duplicate (within 5 min)"
+                        except ValueError as e:
+                            log.warning(f"  Could not compare received-on times: {e}")
+
+                if not existing:
+                    # Check 2: active case for same store with same subject (any date)
+                    subject_code = crm_client.resolve_subject(case_params.get("subject", ""))
+                    if subject_code is not None:
+                        existing = crm_client.find_active_case_by_subject(
+                            case_params["store_number"], subject_code
+                        )
+                        dup_reason = "same-subject"
+
+                if not existing:
+                    # Check 3: resolved case for same store, same day, same subject
+                    if subject_code is None:
+                        subject_code = crm_client.resolve_subject(case_params.get("subject", ""))
+                    if subject_code is not None:
+                        existing = crm_client.find_resolved_case_today_by_subject(
+                            case_params["store_number"], subject_code
+                        )
+                        dup_reason = "resolved-same-day-subject"
+
+                if existing:
+                    if is_exact_duplicate:
+                        # Exact duplicate — mark Duplicate, no notes
+                        log.info(
+                            f"  Exact duplicate ({dup_reason}): {existing['ticketnumber']} "
+                            f"(owner: {existing['owner_name']}). Skipping case creation."
+                        )
+                        self.update_item_fields(
+                            item_id,
+                            Duplicate=True,
+                            Incrementperson=existing["owner_name"],
+                        )
+                    else:
+                        # Increment — add note to existing case
+                        log.info(
+                            f"  Increment ({dup_reason}): {existing['ticketnumber']} "
+                            f"(owner: {existing['owner_name']}). Skipping case creation."
+                        )
+                        self.update_item_fields(
+                            item_id,
+                            Increment=True,
+                            Incrementperson=existing["owner_name"],
+                        )
+                        # Add Full Message as note on the existing case
+                        full_message = str(fields.get("FullMessage", "")).strip()
+                        if full_message and existing.get("case_id"):
+                            try:
+                                # Build date/time string from SharePoint columns
+                                note_date = str(fields.get("Dateandtime", "")).strip()
+                                note_time = str(fields.get("Time", "")).strip()
+                                if note_date and "T" in note_date:
+                                    dt = datetime.fromisoformat(note_date.replace("Z", ""))
+                                    note_date = dt.strftime("%m/%d/%Y")
+                                if note_time:
+                                    time_match = re.match(r'(\d{1,2}:\d{2}\s*[AaPp][Mm])', note_time)
+                                    if time_match:
+                                        note_time = time_match.group(1)
+                                dt_label = f" {note_date}"
+                                if note_time:
+                                    dt_label += f" {note_time}"
+                                note_subject = f"Increment{dt_label}"
+
+                                crm_client.create_note(
+                                    existing["case_id"],
+                                    text=full_message,
+                                    subject=note_subject,
+                                )
+                                log.info(f"  Increment note added to {existing['ticketnumber']}.")
+                            except Exception as e:
+                                log.warning(f"  Failed to add increment note: {e}")
+
+                    # Move draft reply for both duplicates and increments
+                    draft_reply = fields.get("DraftReply", False)
+                    if draft_reply:
+                        recipient_email = str(fields.get("emailaddress", "")).strip()
+                        if recipient_email:
+                            try:
+                                self.move_draft_to_shared(recipient_email)
+                            except Exception as e:
+                                log.warning(f"  Failed to move draft: {e}")
+
+                    self.update_item_status(item_id, "Processed")
+                    log.info(f"  Item {item_id} marked as Processed ({dup_reason}).")
+                    processed += 1
+                    continue
+
+                # No duplicate — create the case
+                log.info(f"  No duplicate found. Creating case...")
                 result = crm_client.create_case(**case_params)
 
                 # Add note from Full Message column if present
