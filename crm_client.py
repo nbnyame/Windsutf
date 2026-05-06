@@ -314,10 +314,15 @@ class Dynamics365Client:
         # Exact match first
         if lookup in cls.CASE_TYPE_MAP:
             return cls.CASE_TYPE_MAP[lookup]
-        # Match on first word (e.g. "POS Install" → "pos")
-        first_word = lookup.split()[0] if lookup.split() else ""
-        if first_word in cls.CASE_TYPE_MAP:
-            return cls.CASE_TYPE_MAP[first_word]
+        # Match on first few words (e.g. "New Store Setup (Includes Store Transfers)" → "new store setup")
+        words = lookup.split()
+        if words:
+            # Try first 3 words, then 2 words, then 1 word
+            for num_words in [3, 2, 1]:
+                if len(words) >= num_words:
+                    prefix = " ".join(words[:num_words])
+                    if prefix in cls.CASE_TYPE_MAP:
+                        return cls.CASE_TYPE_MAP[prefix]
         print(f"Warning: Unknown case type '{value}', skipping. "
               f"Valid types: {', '.join(cls.CASE_TYPE_MAP.keys())}")
         return None
@@ -339,9 +344,17 @@ class Dynamics365Client:
         for fmt in formats:
             try:
                 naive_dt = datetime.strptime(value.strip(), fmt)
-                # Determine CDT vs CST: CDT (UTC-5) runs approx Mar-Nov
-                # Simple heuristic: month 3-11 = CDT, else CST
-                if 3 <= naive_dt.month <= 11:
+                # Compute actual DST transition for this year:
+                # CDT starts 2nd Sunday of March at 2:00 AM (UTC-5)
+                # CST starts 1st Sunday of November at 2:00 AM (UTC-6)
+                year = naive_dt.year
+                mar_1 = datetime(year, 3, 1)
+                cdt_start = mar_1 + timedelta(days=(6 - mar_1.weekday()) % 7 + 7)
+                cdt_start = cdt_start.replace(hour=2)
+                nov_1 = datetime(year, 11, 1)
+                cst_start = nov_1 + timedelta(days=(6 - nov_1.weekday()) % 7)
+                cst_start = cst_start.replace(hour=2)
+                if cdt_start <= naive_dt < cst_start:
                     offset_hours = -5  # CDT
                 else:
                     offset_hours = -6  # CST
@@ -356,6 +369,108 @@ class Dynamics365Client:
         )
 
     # ─── Case Management ────────────────────────────────────────────────
+
+    def find_active_case_today(self, store_number):
+        """
+        Check if an active case exists for the given store number created today.
+
+        Returns dict with 'case_id', 'ticketnumber', 'owner_name', 'subject_code' and 'received_on' if found, else None.
+        """
+        today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        params = {
+            "$filter": (
+                f"statecode eq 0 "
+                f"and win_storenumber eq '{store_number}' "
+                f"and createdon ge {today_utc}T00:00:00Z "
+                f"and createdon lt {today_utc}T23:59:59Z"
+            ),
+            "$select": "incidentid,ticketnumber,win_storenumber,win_subject,win_receivedon,createdon,_ownerid_value",
+            "$top": 1,
+            "$orderby": "createdon desc",
+        }
+        response = self._request("GET", "incidents", params=params)
+        cases = response.json().get("value", [])
+        if not cases:
+            return None
+
+        case = cases[0]
+        owner_name = case.get(
+            "_ownerid_value@OData.Community.Display.V1.FormattedValue", ""
+        )
+        return {
+            "case_id": case.get("incidentid", ""),
+            "ticketnumber": case.get("ticketnumber", ""),
+            "owner_name": owner_name,
+            "received_on": case.get("win_receivedon", ""),
+            "subject_code": case.get("win_subject"),
+        }
+
+    def find_active_case_by_subject(self, store_number, subject_code):
+        """
+        Check if an active case exists for the given store number with the
+        same win_subject option set code (any date).
+
+        Returns dict with 'case_id', 'ticketnumber' and 'owner_name' if found, else None.
+        """
+        params = {
+            "$filter": (
+                f"statecode eq 0 "
+                f"and win_storenumber eq '{store_number}' "
+                f"and win_subject eq {subject_code}"
+            ),
+            "$select": "incidentid,ticketnumber,win_storenumber,win_subject,createdon,_ownerid_value",
+            "$top": 1,
+            "$orderby": "createdon desc",
+        }
+        response = self._request("GET", "incidents", params=params)
+        cases = response.json().get("value", [])
+        if not cases:
+            return None
+
+        case = cases[0]
+        owner_name = case.get(
+            "_ownerid_value@OData.Community.Display.V1.FormattedValue", ""
+        )
+        return {
+            "case_id": case.get("incidentid", ""),
+            "ticketnumber": case.get("ticketnumber", ""),
+            "owner_name": owner_name,
+        }
+
+    def find_resolved_case_today_by_subject(self, store_number, subject_code):
+        """
+        Check if a resolved case exists for the given store number created today
+        with the same win_subject option set code.
+
+        Returns dict with 'case_id', 'ticketnumber' and 'owner_name' if found, else None.
+        """
+        today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        params = {
+            "$filter": (
+                f"statecode eq 1 "
+                f"and win_storenumber eq '{store_number}' "
+                f"and win_subject eq {subject_code} "
+                f"and createdon ge {today_utc}T00:00:00Z "
+                f"and createdon lt {today_utc}T23:59:59Z"
+            ),
+            "$select": "incidentid,ticketnumber,win_storenumber,win_subject,createdon,_ownerid_value",
+            "$top": 1,
+            "$orderby": "createdon desc",
+        }
+        response = self._request("GET", "incidents", params=params)
+        cases = response.json().get("value", [])
+        if not cases:
+            return None
+
+        case = cases[0]
+        owner_name = case.get(
+            "_ownerid_value@OData.Community.Display.V1.FormattedValue", ""
+        )
+        return {
+            "case_id": case.get("incidentid", ""),
+            "ticketnumber": case.get("ticketnumber", ""),
+            "owner_name": owner_name,
+        }
 
     def lookup_account_by_store(self, store_number):
         """Look up an account by its store number (win_storenumber)."""
@@ -430,13 +545,28 @@ class Dynamics365Client:
 
         response = self._request("POST", "incidents", data=case_data)
 
-        if response.status_code in (201, 204):
+        if response.status_code in (200, 201, 204):
             case_id = response.headers.get("OData-EntityId", "")
             # Extract GUID from the entity URL
             if "(" in case_id:
                 case_id = case_id.split("(")[-1].rstrip(")")
             print(f"Case created successfully. ID: {case_id}")
-            return {"case_id": case_id, "description": description, "status": "created"}
+            
+            # Fetch the created case to get createdon and win_receivedon
+            params = {
+                "$select": "incidentid,ticketnumber,createdon,win_receivedon",
+            }
+            case_response = self._request("GET", f"incidents({case_id})", params=params)
+            case_details = case_response.json()
+            
+            return {
+                "case_id": case_id,
+                "ticketnumber": case_details.get("ticketnumber", ""),
+                "description": description,
+                "status": "created",
+                "createdon": case_details.get("createdon", ""),
+                "win_receivedon": case_details.get("win_receivedon", ""),
+            }
         else:
             raise Exception(f"Failed to create case: {response.text}")
 
@@ -457,7 +587,7 @@ class Dynamics365Client:
             note_data["subject"] = subject
 
         response = self._request("POST", "annotations", data=note_data)
-        if response.status_code in (201, 204):
+        if response.status_code in (200, 201, 204):
             note_id = response.headers.get("OData-EntityId", "")
             if "(" in note_id:
                 note_id = note_id.split("(")[-1].rstrip(")")

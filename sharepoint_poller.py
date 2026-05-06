@@ -9,7 +9,7 @@ import sys
 import time
 import logging
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -123,18 +123,23 @@ class SharePointPoller:
 
         site_id = self._discover_site()
         url = f"{GRAPH_BASE}/sites/{site_id}/lists"
-        resp = requests.get(url, headers=self._graph_headers(), timeout=30)
-        resp.raise_for_status()
-
-        for lst in resp.json().get("value", []):
-            if lst["displayName"].lower() == SHAREPOINT_LIST_NAME.lower():
-                self.list_id = lst["id"]
-                log.info(f"SharePoint list '{SHAREPOINT_LIST_NAME}' ID: {self.list_id}")
-                return self.list_id
+        all_lists = []
+        while url:
+            resp = requests.get(url, headers=self._graph_headers(), timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            page_lists = data.get("value", [])
+            all_lists.extend(page_lists)
+            for lst in page_lists:
+                if lst["displayName"].lower() == SHAREPOINT_LIST_NAME.lower():
+                    self.list_id = lst["id"]
+                    log.info(f"SharePoint list '{SHAREPOINT_LIST_NAME}' ID: {self.list_id}")
+                    return self.list_id
+            url = data.get("@odata.nextLink")
 
         raise ValueError(
             f"List '{SHAREPOINT_LIST_NAME}' not found. "
-            f"Available: {[l['displayName'] for l in resp.json().get('value', [])]}"
+            f"Available: {[l['displayName'] for l in all_lists]}"
         )
 
     # ─── Read / Update Items ─────────────────────────────────────────────
@@ -161,6 +166,15 @@ class SharePointPoller:
             url = data.get("@odata.nextLink")
         return all_approved
 
+    def update_item_fields(self, item_id, **field_values):
+        """Update arbitrary fields on a SharePoint list item."""
+        site_id = self._discover_site()
+        list_id = self._discover_list()
+        url = f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items/{item_id}/fields"
+        resp = requests.patch(url, headers=self._graph_headers(),
+                              json=field_values, timeout=30)
+        resp.raise_for_status()
+
     def update_item_status(self, item_id, status, error_msg=None):
         """Update the Status column of a SharePoint list item."""
         site_id = self._discover_site()
@@ -168,12 +182,27 @@ class SharePointPoller:
 
         url = f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items/{item_id}/fields"
         fields = {"Status": status}
+        if error_msg:
+            fields["ErrorMessage"] = str(error_msg)[:255]  # Limit length
 
-        resp = requests.patch(
-            url, headers=self._graph_headers(), json=fields, timeout=30
-        )
-        resp.raise_for_status()
-        log.info(f"Item {item_id} status updated to '{status}'.")
+        try:
+            resp = requests.patch(
+                url, headers=self._graph_headers(), json=fields, timeout=30
+            )
+            resp.raise_for_status()
+            log.info(f"Item {item_id} status updated to '{status}'.")
+        except requests.exceptions.HTTPError as e:
+            # If ErrorMessage field doesn't exist, try without it
+            if error_msg and e.response.status_code == 400:
+                log.warning(f"Failed to update with error message, retrying without it...")
+                fields = {"Status": status}
+                resp = requests.patch(
+                    url, headers=self._graph_headers(), json=fields, timeout=30
+                )
+                resp.raise_for_status()
+                log.info(f"Item {item_id} status updated to '{status}' (without error message).")
+            else:
+                raise 
 
     # ─── Map SharePoint → CRM ────────────────────────────────────────────
 
@@ -264,33 +293,41 @@ class SharePointPoller:
         """
         headers = self._graph_headers()
 
-        # Search for drafts in source mailbox addressed to this recipient
-        # Use $filter on toRecipients via search or iterate recent drafts
-        drafts_url = (
-            f"{GRAPH_BASE}/users/{DRAFT_SOURCE_MAILBOX}/mailFolders/Drafts/messages"
-            f"?$top=50&$select=id,subject,toRecipients,createdDateTime"
-            f"&$orderby=createdDateTime desc"
-        )
-        resp = requests.get(drafts_url, headers=headers, timeout=30)
-        resp.raise_for_status()
-
         target_email = recipient_email.strip().lower()
         matched_msg = None
+        total_drafts_checked = 0
 
-        for msg in resp.json().get("value", []):
-            recipients = [
-                r["emailAddress"]["address"].lower()
-                for r in msg.get("toRecipients", [])
-                if r.get("emailAddress", {}).get("address")
-            ]
-            if target_email in recipients:
-                matched_msg = msg
-                break
+        # Paginate through drafts ordered by most recent first
+        drafts_url = (
+            f"{GRAPH_BASE}/users/{DRAFT_SOURCE_MAILBOX}/mailFolders/Drafts/messages"
+            f"?$top=50&$select=id,subject,toRecipients,ccRecipients,bccRecipients,createdDateTime"
+            f"&$orderby=createdDateTime desc"
+        )
+        while drafts_url and not matched_msg:
+            resp = requests.get(drafts_url, headers=headers, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            drafts_in_batch = data.get("value", [])
+            total_drafts_checked += len(drafts_in_batch)
+            
+            for msg in drafts_in_batch:
+                # Check To, CC, and BCC recipients
+                recipients = []
+                for field in ["toRecipients", "ccRecipients", "bccRecipients"]:
+                    recipients.extend([
+                        r["emailAddress"]["address"].lower()
+                        for r in msg.get(field, [])
+                        if r.get("emailAddress", {}).get("address")
+                    ])
+                if target_email in recipients:
+                    matched_msg = msg
+                    break
+            drafts_url = data.get("@odata.nextLink")
 
         if not matched_msg:
             log.warning(
                 f"  No draft found in {DRAFT_SOURCE_MAILBOX} "
-                f"addressed to '{recipient_email}'."
+                f"addressed to '{recipient_email}'. Searched {total_drafts_checked} draft(s)."
             )
             return None
 
@@ -383,12 +420,171 @@ class SharePointPoller:
 
                 # Map fields and create case
                 case_params = self.map_item_to_case(fields)
-                log.info(f"Creating case for store {case_params['store_number']}...")
+                log.info(f"Processing store {case_params['store_number']}...")
                 log.info(f"  Params: contact={case_params.get('contact')}, "
                          f"phone={case_params.get('contact_phone')}, "
                          f"subject={case_params.get('subject')}, "
                          f"case_type={case_params.get('case_type')}")
 
+                # Validate required fields before proceeding
+                store_num = case_params.get('store_number', '').strip()
+                if not store_num or store_num == '?':
+                    raise ValueError(f"Invalid or missing store number: '{raw_store}'")
+                
+                subject = case_params.get('subject', '').strip()
+                if not subject:
+                    raise ValueError("Subject is required but was not provided")
+                
+                # Validate subject exists in CRM
+                try:
+                    subject_code = crm_client.resolve_subject(subject)
+                except ValueError as e:
+                    raise ValueError(f"Invalid subject '{subject}': {e}")
+                
+                # Validate received_on format if provided
+                received_on = case_params.get('received_on')
+                if received_on:
+                    try:
+                        crm_client.parse_received_on(received_on)
+                    except ValueError as e:
+                        raise ValueError(f"Invalid received-on date/time '{received_on}': {e}")
+
+                # Check 1: active case for same store created today
+                existing = crm_client.find_active_case_today(case_params["store_number"])
+                dup_reason = "same-day"
+                is_exact_duplicate = False
+
+                if existing:
+                    # Check if subjects match for Quote - only increment if both are Quote or neither is Quote
+                    QUOTE_SUBJECT_CODE = 100000008
+                    existing_subject = existing.get("subject_code")
+                    new_subject_code = subject_code  # Already validated above
+                    
+                    existing_is_quote = existing_subject == QUOTE_SUBJECT_CODE
+                    new_is_quote = new_subject_code == QUOTE_SUBJECT_CODE
+                    
+                    # Skip increment if one is Quote and the other is not
+                    if existing_is_quote != new_is_quote:
+                        if existing_is_quote:
+                            log.info(f"  Found same-day case {existing['ticketnumber']} but it's a Quote and new case is not. Creating new case.")
+                        else:
+                            log.info(f"  Found same-day case {existing['ticketnumber']} but new case is a Quote and existing is not. Creating new case.")
+                        existing = None
+                    else:
+                        # Check if received-on times are within 5 minutes
+                        new_received_on_raw = case_params.get("received_on", "")
+                        existing_received_on = existing.get("received_on", "")
+                        if new_received_on_raw and existing_received_on:
+                            try:
+                                # Convert new received-on to UTC (same as CRM stores it)
+                                new_received_utc = crm_client.parse_received_on(new_received_on_raw)
+                                new_dt = datetime.strptime(new_received_utc, "%Y-%m-%dT%H:%M:%SZ")
+                                ext_dt = datetime.strptime(existing_received_on, "%Y-%m-%dT%H:%M:%SZ")
+                                log.info(f"  Time comparison: new={new_received_utc} existing={existing_received_on} diff={abs(new_dt - ext_dt)}")
+                                if abs(new_dt - ext_dt) <= timedelta(minutes=5):
+                                    is_exact_duplicate = True
+                                    dup_reason = "duplicate (within 5 min)"
+                            except ValueError as e:
+                                log.warning(f"  Could not compare received-on times: {e}")
+
+                if not existing:
+                    # Check 2: active case for same store with same subject (any date)
+                    subject_code = crm_client.resolve_subject(case_params.get("subject", ""))
+                    if subject_code is not None:
+                        existing = crm_client.find_active_case_by_subject(
+                            case_params["store_number"], subject_code
+                        )
+                        dup_reason = "same-subject"
+
+                if not existing:
+                    # Check 3: resolved case for same store, same day, same subject
+                    if subject_code is None:
+                        subject_code = crm_client.resolve_subject(case_params.get("subject", ""))
+                    if subject_code is not None:
+                        existing = crm_client.find_resolved_case_today_by_subject(
+                            case_params["store_number"], subject_code
+                        )
+                        dup_reason = "resolved-same-day-subject"
+
+                if existing:
+                    if is_exact_duplicate:
+                        # Exact duplicate — mark Duplicate, no notes
+                        log.info(
+                            f"  Exact duplicate ({dup_reason}): {existing['ticketnumber']} "
+                            f"(owner: {existing['owner_name']}). Skipping case creation."
+                        )
+                        self.update_item_fields(
+                            item_id,
+                            Duplicate=True,
+                            Incrementperson=existing["owner_name"],
+                        )
+                    else:
+                        # Increment — add note to existing case
+                        log.info(
+                            f"  Increment ({dup_reason}): {existing['ticketnumber']} "
+                            f"(owner: {existing['owner_name']}). Skipping case creation."
+                        )
+                        self.update_item_fields(
+                            item_id,
+                            Increment=True,
+                            Incrementperson=existing["owner_name"],
+                        )
+                        # Add Full Message as note on the existing case
+                        full_message = str(fields.get("FullMessage", "")).strip()
+                        if full_message and existing.get("case_id"):
+                            try:
+                                # Build date/time string from SharePoint columns
+                                note_date = str(fields.get("Dateandtime", "")).strip()
+                                note_time = str(fields.get("Time", "")).strip()
+                                if note_date and "T" in note_date:
+                                    dt = datetime.fromisoformat(note_date.replace("Z", ""))
+                                    note_date = dt.strftime("%m/%d/%Y")
+                                if note_time:
+                                    time_match = re.match(r'(\d{1,2}:\d{2}\s*[AaPp][Mm])', note_time)
+                                    if time_match:
+                                        note_time = time_match.group(1)
+                                dt_label = f" {note_date}"
+                                if note_time:
+                                    dt_label += f" {note_time}"
+                                note_subject = f"Increment{dt_label}"
+
+                                crm_client.create_note(
+                                    existing["case_id"],
+                                    text=full_message,
+                                    subject=note_subject,
+                                )
+                                log.info(f"  Increment note added to {existing['ticketnumber']}.")
+                            except Exception as e:
+                                log.warning(f"  Failed to add increment note: {e}")
+
+                        # Move draft reply for increments only
+                        draft_reply = fields.get("DraftReply", False)
+                        if draft_reply:
+                            recipient_email = str(fields.get("emailaddress", "")).strip()
+                            if recipient_email:
+                                try:
+                                    self.move_draft_to_shared(recipient_email)
+                                except Exception as e:
+                                    log.warning(f"  Failed to move draft: {e}")
+
+                    # Move draft reply for duplicates (without adding note)
+                    if is_exact_duplicate:
+                        draft_reply = fields.get("DraftReply", False)
+                        if draft_reply:
+                            recipient_email = str(fields.get("emailaddress", "")).strip()
+                            if recipient_email:
+                                try:
+                                    self.move_draft_to_shared(recipient_email)
+                                except Exception as e:
+                                    log.warning(f"  Failed to move draft: {e}")
+
+                    self.update_item_status(item_id, "Processed")
+                    log.info(f"  Item {item_id} marked as Processed ({dup_reason}).")
+                    processed += 1
+                    continue
+
+                # No duplicate — create the case
+                log.info(f"  No duplicate found. Creating case...")
                 result = crm_client.create_case(**case_params)
 
                 # Add note from Full Message column if present
@@ -418,18 +614,52 @@ class SharePointPoller:
 
                 # Mark as processed
                 self.update_item_status(item_id, "Processed")
-                log.info(
-                    f"Case created for store {case_params['store_number']}: "
-                    f"{result.get('case_id', '?')}"
-                )
+                
+                # Log case creation with time details
+                case_id = result.get('case_id', '?')
+                ticket_number = result.get('ticketnumber', '?')
+                createdon = result.get('createdon', '')
+                receivedon = result.get('win_receivedon', '')
+                
+                log.info(f"Case created for store {case_params['store_number']}: {ticket_number} (ID: {case_id})")
+                
+                # Calculate and log time difference
+                if createdon and receivedon:
+                    try:
+                        created_dt = datetime.strptime(createdon, "%Y-%m-%dT%H:%M:%SZ")
+                        received_dt = datetime.strptime(receivedon, "%Y-%m-%dT%H:%M:%SZ")
+                        time_diff = created_dt - received_dt
+                        
+                        # Format times for logging
+                        log.info(f"  Received On: {receivedon}")
+                        log.info(f"  Created On:  {createdon}")
+                        log.info(f"  Time Difference: {time_diff} (Created - Received)")
+                    except ValueError as e:
+                        log.warning(f"  Could not calculate time difference: {e}")
+                else:
+                    log.info(f"  Received On: {receivedon if receivedon else 'N/A'}")
+                    log.info(f"  Created On:  {createdon if createdon else 'N/A'}")
+                
                 processed += 1
 
+            except ValueError as e:
+                # Validation errors - log and mark as Failed with clear error message
+                log.error(f"Validation error for item {item_id} (store {store}): {e}")
+                try:
+                    error_msg = str(e)
+                    self.update_item_status(item_id, "Failed", error_msg)
+                    log.info(f"  Item {item_id} marked as Failed: {error_msg}")
+                except Exception as update_err:
+                    log.error(f"Could not update status for item {item_id}: {update_err}")
             except Exception as e:
+                # Other errors (network, CRM issues, etc.)
                 log.error(f"Failed to process item {item_id} (store {store}): {e}")
                 try:
-                    self.update_item_status(item_id, "Failed", str(e))
-                except Exception:
-                    log.error(f"Could not update status for item {item_id}")
+                    error_msg = f"Error: {type(e).__name__}: {str(e)}"
+                    self.update_item_status(item_id, "Failed", error_msg)
+                    log.info(f"  Item {item_id} marked as Failed")
+                except Exception as update_err:
+                    log.error(f"Could not update status for item {item_id}: {update_err}")
 
         return processed
 
