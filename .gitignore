@@ -8,3 +8,6 @@ __pycache__/
 
 # Log files
 *.log
+
+# Node modules
+node_modules/
