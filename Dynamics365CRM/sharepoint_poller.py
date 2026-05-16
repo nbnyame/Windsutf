@@ -503,21 +503,29 @@ class SharePointPoller:
             if not folder_id:
                 continue
             
-            # Search for emails in time window
+            # Search for emails in time window (time filter only — Graph API does not
+            # reliably support from/emailAddress/address as a $filter property, so we
+            # apply sender filtering client-side after fetching results)
             filter_query = f"receivedDateTime ge {start_time} and receivedDateTime le {end_time}"
-            if check_sender and email_address:
-                filter_query += f" and from/emailAddress/address eq '{email_address.lower()}'"
             
             messages_url = (
                 f"{GRAPH_BASE}/users/{DRAFT_TARGET_MAILBOX}/mailFolders/{folder_id}/messages"
                 f"?$filter={filter_query}"
                 f"&$select=id,subject,receivedDateTime,from"
-                f"&$top=10"
+                f"&$top=20"
             )
             
             msg_resp = requests.get(messages_url, headers=headers, timeout=30)
             msg_resp.raise_for_status()
             messages = msg_resp.json().get("value", [])
+            
+            # Client-side sender filter (more reliable than Graph API $filter on from)
+            if check_sender and email_address:
+                expected = email_address.lower()
+                messages = [
+                    m for m in messages
+                    if m.get("from", {}).get("emailAddress", {}).get("address", "").lower() == expected
+                ]
             
             if messages:
                 msg = messages[0]
