@@ -243,7 +243,7 @@ Case created successfully. ID: ppp666-qqq777-rrr888
 Case ppp666-qqq777-rrr888 assigned to team successfully.
 2026-05-12 15:25:21,012 [INFO]   Note added to case.
 2026-05-12 15:25:21,345 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
-2026-05-12 15:25:51,456 [INFO]   [Email Verification] Retrying email search in ['Emails From Franchisees', 'Emails From FOMs']...
+2026-05-12 15:25:51,456 [INFO]   [Email Verification] Retrying email search in ['Emails From Franchisees', 'Emails From FOMs', 'Create CRM Case']...
 2026-05-12 15:25:51,789 [INFO]   [Email Verification] [OK]œ“ Found email in 'Emails From Franchisees' at 2026-05-12T20:23:00Z from emily@example.com
 2026-05-12 15:25:52,012 [INFO] Item 1248 status updated to 'Processed'.
 2026-05-12 15:25:52,013 [INFO] Case created for store 55555: CAS-363409-E5E5E5 (ID: ppp666-qqq777-rrr888)
@@ -263,8 +263,8 @@ Case created successfully. ID: sss999-ttt000-uuu111
 Case sss999-ttt000-uuu111 assigned to team successfully.
 2026-05-12 15:26:01,012 [INFO]   Note added to case.
 2026-05-12 15:26:01,345 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
-2026-05-12 15:26:31,456 [INFO]   [Email Verification] Retrying email search in ['Calls Entered']...
-2026-05-12 15:26:31,789 [WARNING]   [Email Verification] [NOT FOUND] No email found in ['Calls Entered'] within +/-2 minutes of 2026-05-12T20:24:00Z after retry
+2026-05-12 15:26:31,456 [INFO]   [Email Verification] Retrying email search in ['Calls Entered', 'Create CRM Case']...
+2026-05-12 15:26:31,789 [WARNING]   [Email Verification] [NOT FOUND] No email found in ['Calls Entered', 'Create CRM Case'] within +/-2 minutes of 2026-05-12T20:24:00Z after retry
 2026-05-12 15:26:32,012 [INFO] Item 1249 status updated to 'Processed'.
 2026-05-12 15:26:32,013 [INFO] Case created for store 66666: CAS-363410-F6F6F6 (ID: sss999-ttt000-uuu111)
 2026-05-12 15:26:32,014 [INFO]   Received On: 2026-05-12T20:24:00Z
@@ -412,9 +412,10 @@ KEY PATTERNS TO LOOK FOR:
 6. EMAIL VERIFICATION:
    - "[OK] Found email in '{folder}' at {time} from {email}" - Success (immediate)
    - "Email not found on first check. Waiting 10 seconds" - Retry initiated
-   - "Retrying email search in {folders}" - Second attempt
-   - "[NOT FOUND] No email found in...after retry" - Not found after retry
+   - "Retrying email search in {folders}" - Second attempt (same folders, incl. Create CRM Case)
+   - "[NOT FOUND] No email found in..." - Not found after retry
    - "Expected sender: {email}" - Shows expected email for Email/Internal origins
+   - Note: 'Create CRM Case' folder is always included in BOTH attempts
 
 7. TIME-CORRECTED EMAIL VERIFICATION (runs BEFORE case creation):
    - "Trying time-corrected search (+/-12h, +/-24h)..." - Offset search initiated

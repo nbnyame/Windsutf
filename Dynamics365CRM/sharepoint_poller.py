@@ -600,7 +600,11 @@ class SharePointPoller:
             headers = self._graph_headers()
             folders = folder if isinstance(folder, list) else [folder]
             
-            # Try up to 2 times: immediate, then after 30 seconds
+            # Always include "Create CRM Case" in every search attempt
+            if "Create CRM Case" not in folders:
+                folders = folders + ["Create CRM Case"]
+            
+            # Try up to 2 times: immediate, then after 10 seconds
             for attempt in range(2):
                 result = self._search_email_in_folders(
                     folders, check_sender, email_address, start_time, end_time,
@@ -624,10 +628,6 @@ class SharePointPoller:
                 if attempt == 0:
                     log.info(f"  [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...")
                     time.sleep(10)
-                    # On retry, also check "Create CRM Case" subfolder
-                    retry_folders = folders.copy() if isinstance(folders, list) else [folders]
-                    retry_folders.append("Create CRM Case")
-                    folders = retry_folders
                     log.info(f"  [Email Verification] Retrying email search in {folders}...")
             
             # ── Time-correction search: try ±12h and ±24h offsets ──
