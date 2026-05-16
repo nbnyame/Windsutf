@@ -51,6 +51,11 @@ logging.basicConfig(
 log = logging.getLogger("sharepoint_poller")
 
 
+class InvalidStoreNumberError(ValueError):
+    """Raised when a store number is missing, malformed, or not found in CRM."""
+    pass
+
+
 class SharePointPoller:
     """Polls SharePoint list and creates CRM cases for approved items."""
 
@@ -722,7 +727,7 @@ class SharePointPoller:
                 # Validate required fields before proceeding
                 store_num = case_params.get('store_number', '').strip()
                 if not store_num or store_num == '?':
-                    raise ValueError(f"Invalid or missing store number: '{raw_store}'")
+                    raise InvalidStoreNumberError(f"Invalid or missing store number: '{raw_store}'")
                 
                 subject = case_params.get('subject', '').strip()
                 if not subject:
@@ -912,7 +917,12 @@ class SharePointPoller:
 
                 # No duplicate — create the case
                 log.info(f"  No duplicate found. Creating case...")
-                result = crm_client.create_case(**case_params)
+                try:
+                    result = crm_client.create_case(**case_params)
+                except ValueError as e:
+                    if "No account found for store number" in str(e):
+                        raise InvalidStoreNumberError(str(e))
+                    raise
 
                 # Add note from Full Message column if present
                 full_message = str(fields.get("FullMessage", "")).strip()
@@ -984,6 +994,13 @@ class SharePointPoller:
                 
                 processed += 1
 
+            except InvalidStoreNumberError as e:
+                log.error(f"Invalid store number for item {item_id} (store {store}): {e}")
+                try:
+                    self.update_item_status(item_id, "Invalid Store Number", str(e))
+                    log.info(f"  Item {item_id} marked as Invalid Store Number: {e}")
+                except Exception as update_err:
+                    log.error(f"Could not update status for item {item_id}: {update_err}")
             except ValueError as e:
                 # Validation errors - log and mark as Failed with clear error message
                 log.error(f"Validation error for item {item_id} (store {store}): {e}")
