@@ -444,7 +444,7 @@ class SharePointPoller:
         Search for an email in the given folders within a time window.
         
         Returns:
-            dict with 'folder_name', 'msg_time', 'msg_from' if found, else None
+            dict with 'folder_name', 'msg_id', 'msg_time', 'msg_from', 'match_count' if found, else None
         """
         for folder_name in folders:
             folder_id = None
@@ -536,11 +536,59 @@ class SharePointPoller:
                 msg = messages[0]
                 return {
                     "folder_name": folder_name,
+                    "msg_id": msg.get("id", ""),
                     "msg_time": msg.get("receivedDateTime", ""),
                     "msg_from": msg.get("from", {}).get("emailAddress", {}).get("address", ""),
+                    "match_count": len(messages),
                 }
         
         return None
+
+    def _maybe_narrow_result(self, result, config_key, base_dt, folders, check_sender,
+                              email_address, parent_folder, parent_location, headers):
+        """If multiple emails found for a time-only origin, narrow the window to ±1 min."""
+        if config_key in {"voice_to_text", "internal", "splunk"} and result.get("match_count", 1) > 1:
+            log.info(
+                f"  [Email Verification] {result['match_count']} emails in ±2 min window, "
+                f"narrowing to ±1 min..."
+            )
+            narrow_start = (base_dt - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            narrow_end   = (base_dt + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
+            narrow_result = self._search_email_in_folders(
+                folders, check_sender, email_address, narrow_start, narrow_end,
+                parent_folder, parent_location, headers
+            )
+            if narrow_result:
+                return narrow_result
+            log.info(f"  [Email Verification] No unique match at ±1 min, keeping ±2 min result.")
+        return result
+
+    def _move_email_to_inbox(self, msg_id):
+        """Move an email in the shared mailbox to the Inbox and mark it as unread."""
+        headers = self._graph_headers()
+        base_url = f"{GRAPH_BASE}/users/{DRAFT_TARGET_MAILBOX}/messages"
+        try:
+            move_resp = requests.post(
+                f"{base_url}/{msg_id}/move",
+                headers=headers,
+                json={"destinationId": "inbox"},
+                timeout=30,
+            )
+            move_resp.raise_for_status()
+            new_id = move_resp.json().get("id", msg_id)
+            log.info(f"  [Email] Moved email to Inbox.")
+            unread_resp = requests.patch(
+                f"{base_url}/{new_id}",
+                headers=headers,
+                json={"isRead": False},
+                timeout=30,
+            )
+            unread_resp.raise_for_status()
+            log.info(f"  [Email] Marked email as unread.")
+            return True
+        except Exception as e:
+            log.warning(f"  [Email] Failed to move/unread email: {e}")
+            return False
 
     def verify_email_in_folder(self, origin_text, email_address, received_datetime_str, store_number, item_id=None):
         """
@@ -617,6 +665,10 @@ class SharePointPoller:
                 )
                 
                 if result:
+                    result = self._maybe_narrow_result(
+                        result, config_key, received_dt, folders, check_sender,
+                        email_address, parent_folder, parent_location, headers
+                    )
                     log.info(f"  [Email Verification] [OK] Found email in '{result['folder_name']}' at {result['msg_time']} from {result['msg_from']}")
                     
                     # Update SharePoint EmailVerification column to Yes
@@ -626,8 +678,8 @@ class SharePointPoller:
                         except Exception as e:
                             log.warning(f"  Failed to update EmailVerification column: {e}")
                     
-                    return {"found": True, "corrected_datetime": None, "folder": result["folder_name"],
-                            "msg_time": result["msg_time"], "msg_from": result["msg_from"]}
+                    return {"found": True, "corrected_datetime": None, "msg_id": result.get("msg_id", ""),
+                            "folder": result["folder_name"], "msg_time": result["msg_time"], "msg_from": result["msg_from"]}
                 
                 # If not found and this is first attempt, wait and retry
                 if attempt == 0:
@@ -657,6 +709,10 @@ class SharePointPoller:
                 )
                 
                 if result:
+                    result = self._maybe_narrow_result(
+                        result, config_key, corrected_dt, folders, check_sender,
+                        email_address, parent_folder, parent_location, headers
+                    )
                     corrected_iso = corrected_dt.strftime("%Y-%m-%dT%H:%M:%SZ")
                     log.info(
                         f"  [Email Verification] [OK] Found email with {offset_label} correction "
@@ -671,8 +727,8 @@ class SharePointPoller:
                         except Exception as e:
                             log.warning(f"  Failed to update EmailVerification column: {e}")
                     
-                    return {"found": True, "corrected_datetime": corrected_iso, "folder": result["folder_name"],
-                            "msg_time": result["msg_time"], "msg_from": result["msg_from"]}
+                    return {"found": True, "corrected_datetime": corrected_iso, "msg_id": result.get("msg_id", ""),
+                            "folder": result["folder_name"], "msg_time": result["msg_time"], "msg_from": result["msg_from"]}
             
             # Not found at any offset
             log.warning(f"  [Email Verification] [NOT FOUND] No email found in {folders} within +/-2 minutes of {received_datetime_str} or +/-12h/24h offsets")
@@ -712,6 +768,7 @@ class SharePointPoller:
             except (ValueError, TypeError):
                 store = str(raw_store)
 
+            ev_result = None
             try:
                 # Mark as in-progress
                 self.update_item_status(item_id, "Processing")
@@ -1001,6 +1058,9 @@ class SharePointPoller:
                     log.info(f"  Item {item_id} marked as Invalid Store Number: {e}")
                 except Exception as update_err:
                     log.error(f"Could not update status for item {item_id}: {update_err}")
+                if ev_result and ev_result.get("msg_id"):
+                    log.info(f"  [Email] Moving verified email back to Inbox and marking unread...")
+                    self._move_email_to_inbox(ev_result["msg_id"])
             except ValueError as e:
                 # Validation errors - log and mark as Failed with clear error message
                 log.error(f"Validation error for item {item_id} (store {store}): {e}")
@@ -1010,6 +1070,9 @@ class SharePointPoller:
                     log.info(f"  Item {item_id} marked as Failed: {error_msg}")
                 except Exception as update_err:
                     log.error(f"Could not update status for item {item_id}: {update_err}")
+                if ev_result and ev_result.get("msg_id"):
+                    log.info(f"  [Email] Moving verified email back to Inbox and marking unread...")
+                    self._move_email_to_inbox(ev_result["msg_id"])
             except Exception as e:
                 # Other errors (network, CRM issues, etc.)
                 log.error(f"Failed to process item {item_id} (store {store}): {e}")
@@ -1019,6 +1082,9 @@ class SharePointPoller:
                     log.info(f"  Item {item_id} marked as Failed")
                 except Exception as update_err:
                     log.error(f"Could not update status for item {item_id}: {update_err}")
+                if ev_result and ev_result.get("msg_id"):
+                    log.info(f"  [Email] Moving verified email back to Inbox and marking unread...")
+                    self._move_email_to_inbox(ev_result["msg_id"])
 
         return processed
 
