@@ -2,19 +2,18 @@
 CRM Case Folder Monitor
 Watches the 'Create CRM Case' inbox subfolder in the shared mailbox.
 
-If an email sits in that folder for longer than AGE_THRESHOLD_MINUTES without
-being processed (moved out) by Copilot / Power Automate, it bounces the email:
-  1. Moves it to 'Create CRM Case retry (ignore)'
-  2. Marks it as unread
-  3. Moves it back to 'Create CRM Case'
-so that Copilot gets a second chance to pick it up.
+Two-stage handling for emails that Copilot / Power Automate fails to process:
 
-The timer starts from when the email is FIRST SEEN in 'Create CRM Case' by
-this monitor (not from receivedDateTime), so emails that were manually moved
-into the folder long after receipt are timed correctly.
+  Stage 1 — 'Create CRM Case' folder:
+    If an email has been there for >= MOVE_TO_RETRY_MINUTES (7 min), move it
+    to the 'Retry' subfolder (child of 'Create CRM Case') and mark it as READ
+    so Copilot can retry processing.
 
-After each bounce the first-seen timer resets to now, so if Copilot still
-fails to process it the email will be bounced again after another 10 minutes.
+  Stage 2 — 'Create CRM Case/Retry' folder:
+    If an email has been there for >= MOVE_TO_INBOX_MINUTES (10 min) without
+    Copilot picking it up, move it to the main Inbox for manual handling.
+
+Timers are based on first-seen by this monitor (not receivedDateTime).
 """
 
 import json
@@ -35,13 +34,14 @@ TENANT_ID     = os.getenv("AZURE_TENANT_ID", "")
 CLIENT_ID     = os.getenv("AZURE_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
 
-MAILBOX        = os.getenv("DRAFT_TARGET_MAILBOX", "supportcenter@winmarkcorporation.com")
-SOURCE_FOLDER  = "Create CRM Case"
-RETRY_FOLDER   = "Create CRM Case retry (ignore)"
+MAILBOX          = os.getenv("DRAFT_TARGET_MAILBOX", "supportcenter@winmarkcorporation.com")
+SOURCE_FOLDER    = "Create CRM Case"   # Inbox child
+RETRY_SUBFOLDER  = "Retry"             # child of SOURCE_FOLDER
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
-AGE_THRESHOLD_MINUTES = 10   # bounce if email has been in folder longer than this
+MOVE_TO_RETRY_MINUTES = 7   # in SOURCE_FOLDER this long → move to Retry, mark read
+MOVE_TO_INBOX_MINUTES = 10  # in RETRY_SUBFOLDER this long → move to Inbox
 POLL_INTERVAL_SECONDS = 120  # check every 2 minutes
 
 STATE_FILE = os.path.join(os.path.dirname(__file__), "crm_folder_state.json")
@@ -138,6 +138,22 @@ class CRMCaseFolderMonitor:
 
     # ── Graph API helpers ─────────────────────────────────────────────────
 
+    def _get_child_folder_id(self, headers: dict, parent_folder_id: str, folder_name: str) -> str | None:
+        """Return the ID of a named child folder under any parent folder ID."""
+        url = (
+            f"{GRAPH_BASE}/users/{MAILBOX}/mailFolders/{parent_folder_id}/childFolders"
+            f"?$top=50&$select=id,displayName"
+        )
+        while url:
+            resp = requests.get(url, headers=headers, timeout=30)
+            resp.raise_for_status()
+            data = resp.json()
+            for f in data.get("value", []):
+                if f.get("displayName") == folder_name:
+                    return f["id"]
+            url = data.get("@odata.nextLink")
+        return None
+
     def _get_inbox_child_folder_id(self, headers: dict, folder_name: str) -> str | None:
         """Return the ID of a direct child folder of Inbox, or None if not found."""
         url = (
@@ -164,38 +180,27 @@ class CRMCaseFolderMonitor:
         resp.raise_for_status()
         return resp.json()
 
-    def _mark_unread(self, headers: dict, msg_id: str):
+    def _mark_read(self, headers: dict, msg_id: str):
         resp = requests.patch(
             f"{GRAPH_BASE}/users/{MAILBOX}/messages/{msg_id}",
             headers=headers,
-            json={"isRead": False},
+            json={"isRead": True},
             timeout=30,
         )
         resp.raise_for_status()
 
     # ── Main check ────────────────────────────────────────────────────────
 
-    def check_and_retry(self) -> int:
+    def _scan_folder(self, headers: dict, folder_id: str, threshold_minutes: int,
+                      dest_folder_id: str, dest_label: str,
+                      mark_read: bool, all_seen_ids: set) -> int:
         """
-        Scan 'Create CRM Case' for all current emails, record first-seen timestamps,
-        and bounce any that have been in the folder longer than AGE_THRESHOLD_MINUTES.
-        Returns the number of emails bounced.
+        Scan a folder, record first-seen times, and move emails older than
+        threshold_minutes to dest_folder_id.
+        Returns count of emails moved.
         """
-        headers = self._headers()
-
-        source_id = self._get_inbox_child_folder_id(headers, SOURCE_FOLDER)
-        retry_id  = self._get_inbox_child_folder_id(headers, RETRY_FOLDER)
-
-        if not source_id:
-            log.error(f"Folder '{SOURCE_FOLDER}' not found under Inbox.")
-            return 0
-        if not retry_id:
-            log.error(f"Folder '{RETRY_FOLDER}' not found under Inbox.")
-            return 0
-
-        # Fetch ALL emails currently in the folder
         msgs_url = (
-            f"{GRAPH_BASE}/users/{MAILBOX}/mailFolders/{source_id}/messages"
+            f"{GRAPH_BASE}/users/{MAILBOX}/mailFolders/{folder_id}/messages"
             f"?$select=id,subject,receivedDateTime,internetMessageId,isRead"
             f"&$top=50"
         )
@@ -203,25 +208,13 @@ class CRMCaseFolderMonitor:
         resp.raise_for_status()
         messages = resp.json().get("value", [])
 
-        # Track which internet IDs are currently in the folder
-        current_ids: set[str] = set()
         for msg in messages:
             iid = msg.get("internetMessageId") or msg["id"]
-            current_ids.add(iid)
-            self._record_first_seen(iid)  # no-op if already recorded
+            all_seen_ids.add(iid)
+            self._record_first_seen(iid)
 
-        # Remove first_seen entries for emails that have left the folder (processed by Copilot)
-        gone = [iid for iid in self._first_seen if iid not in current_ids]
-        for iid in gone:
-            self._remove_first_seen(iid)
-
-        self._save_state()
-
-        if not messages:
-            return 0
-
-        bounced = 0
-        threshold = timedelta(minutes=AGE_THRESHOLD_MINUTES)
+        moved = 0
+        threshold = timedelta(minutes=threshold_minutes)
 
         for msg in messages:
             msg_id      = msg["id"]
@@ -230,36 +223,69 @@ class CRMCaseFolderMonitor:
 
             age = self._folder_age(internet_id)
             if age < threshold:
-                continue  # not old enough yet
+                continue
 
             log.info(
-                f"  Bouncing: '{subject}' "
+                f"  Moving to {dest_label}: '{subject}' "
                 f"(in folder for {str(age).split('.')[0]})"
             )
-
             try:
-                # Step 1 — move to retry folder
-                moved1 = self._move_message(headers, msg_id, retry_id)
-                retry_msg_id = moved1.get("id", msg_id)
+                result = self._move_message(headers, msg_id, dest_folder_id)
+                new_id = result.get("id", msg_id)
                 time.sleep(5)
 
-                # Step 2 — mark as unread
-                self._mark_unread(headers, retry_msg_id)
+                if mark_read:
+                    self._mark_read(headers, new_id)
 
-                # Step 3 — move back to 'Create CRM Case'
-                time.sleep(5)
-                self._move_message(headers, retry_msg_id, source_id)
-
-                # Reset first-seen so the retry gets a fresh 10-min window
                 self._reset_first_seen(internet_id)
-                self._save_state()
-                log.info(f"  Bounced successfully.")
-                bounced += 1
-
+                moved += 1
+                log.info(f"  Moved successfully.")
             except Exception as e:
-                log.error(f"  Failed to bounce '{subject}': {e}")
+                log.error(f"  Failed to move '{subject}': {e}")
 
-        return bounced
+        return moved
+
+    def check_and_retry(self) -> int:
+        """
+        Stage 1: emails in 'Create CRM Case' >= 7 min → move to 'Retry' subfolder, mark read.
+        Stage 2: emails in 'Create CRM Case/Retry' >= 10 min → move to Inbox.
+        Returns total emails moved.
+        """
+        headers = self._headers()
+
+        source_id = self._get_inbox_child_folder_id(headers, SOURCE_FOLDER)
+        if not source_id:
+            log.error(f"Folder '{SOURCE_FOLDER}' not found under Inbox.")
+            return 0
+
+        retry_id = self._get_child_folder_id(headers, source_id, RETRY_SUBFOLDER)
+        if not retry_id:
+            log.error(f"Subfolder '{RETRY_SUBFOLDER}' not found under '{SOURCE_FOLDER}'.")
+            return 0
+
+        all_seen_ids: set[str] = set()
+
+        # Stage 1: Create CRM Case → Retry (7 min, mark read)
+        moved1 = self._scan_folder(
+            headers, source_id, MOVE_TO_RETRY_MINUTES,
+            retry_id, f"'{SOURCE_FOLDER}/{RETRY_SUBFOLDER}'",
+            mark_read=True, all_seen_ids=all_seen_ids
+        )
+
+        # Stage 2: Retry → Inbox (10 min, no read change)
+        moved2 = self._scan_folder(
+            headers, retry_id, MOVE_TO_INBOX_MINUTES,
+            "inbox", "Inbox",
+            mark_read=False, all_seen_ids=all_seen_ids
+        )
+
+        # Clean up first_seen for emails no longer in either folder
+        gone = [iid for iid in self._first_seen if iid not in all_seen_ids]
+        for iid in gone:
+            self._remove_first_seen(iid)
+
+        self._save_state()
+        return moved1 + moved2
 
     # ── Run loop ──────────────────────────────────────────────────────────
 
@@ -267,7 +293,8 @@ class CRMCaseFolderMonitor:
         log.info("=" * 60)
         log.info("CRM Case Folder Monitor starting")
         log.info(f"Watching : {MAILBOX} / Inbox / {SOURCE_FOLDER}")
-        log.info(f"Threshold: {AGE_THRESHOLD_MINUTES} min  |  Cooldown: {COOLDOWN_MINUTES} min")
+        log.info(f"Stage 1  : >={MOVE_TO_RETRY_MINUTES} min in '{SOURCE_FOLDER}' → move to '{RETRY_SUBFOLDER}' subfolder, mark read")
+        log.info(f"Stage 2  : >={MOVE_TO_INBOX_MINUTES} min in '{RETRY_SUBFOLDER}' → move to Inbox")
         log.info(f"Interval : {POLL_INTERVAL_SECONDS}s")
         log.info("=" * 60)
 
