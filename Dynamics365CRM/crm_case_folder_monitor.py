@@ -9,6 +9,10 @@ being processed (moved out) by Copilot / Power Automate, it bounces the email:
   3. Moves it back to 'Create CRM Case'
 so that Copilot gets a second chance to pick it up.
 
+The timer starts from when the email is FIRST SEEN in 'Create CRM Case' by
+this monitor (not from receivedDateTime), so emails that were manually moved
+into the folder long after receipt are timed correctly.
+
 A per-email cooldown (keyed on internetMessageId, which survives folder moves)
 prevents the same email from being bounced more than once per COOLDOWN_MINUTES.
 """
@@ -41,7 +45,7 @@ AGE_THRESHOLD_MINUTES = 10   # bounce if email is older than this
 COOLDOWN_MINUTES      = 20   # don't re-bounce the same email within this window
 POLL_INTERVAL_SECONDS = 120  # check every 2 minutes
 
-COOLDOWN_FILE = os.path.join(os.path.dirname(__file__), "crm_retry_cooldown.json")
+STATE_FILE = os.path.join(os.path.dirname(__file__), "crm_folder_state.json")
 
 # ─── Logging ──────────────────────────────────────────────────────────────
 
@@ -72,7 +76,9 @@ class CRMCaseFolderMonitor:
             )
         self._token = None
         self._token_expires = 0
-        self._cooldown: dict[str, str] = self._load_cooldown()
+        state = self._load_state()
+        self._first_seen: dict[str, str] = state.get("first_seen", {})
+        self._cooldown: dict[str, str]  = state.get("cooldown", {})
 
     # ── Azure AD token ────────────────────────────────────────────────────
 
@@ -100,21 +106,41 @@ class CRMCaseFolderMonitor:
             "Content-Type": "application/json",
         }
 
-    # ── Cooldown helpers ─────────────────────────────────────────────────
+    # ── State helpers (first_seen + cooldown) ────────────────────────────
 
-    def _load_cooldown(self) -> dict:
+    def _load_state(self) -> dict:
         try:
-            with open(COOLDOWN_FILE, "r") as f:
+            with open(STATE_FILE, "r") as f:
                 return json.load(f)
         except (FileNotFoundError, json.JSONDecodeError):
             return {}
 
-    def _save_cooldown(self):
+    def _save_state(self):
         now = datetime.now(timezone.utc)
-        cutoff = (now - timedelta(minutes=COOLDOWN_MINUTES)).isoformat()
-        self._cooldown = {k: v for k, v in self._cooldown.items() if v > cutoff}
-        with open(COOLDOWN_FILE, "w") as f:
-            json.dump(self._cooldown, f)
+        cd_cutoff = (now - timedelta(minutes=COOLDOWN_MINUTES)).isoformat()
+        self._cooldown = {k: v for k, v in self._cooldown.items() if v > cd_cutoff}
+        with open(STATE_FILE, "w") as f:
+            json.dump({"first_seen": self._first_seen, "cooldown": self._cooldown}, f)
+
+    def _record_first_seen(self, internet_id: str):
+        """Record now as the first time we see this email in the folder (idempotent)."""
+        if internet_id not in self._first_seen:
+            self._first_seen[internet_id] = datetime.now(timezone.utc).isoformat()
+
+    def _reset_first_seen(self, internet_id: str):
+        """Reset the timer for an email (called after a bounce so the retry gets a fresh window)."""
+        self._first_seen[internet_id] = datetime.now(timezone.utc).isoformat()
+
+    def _remove_first_seen(self, internet_id: str):
+        """Remove tracking for an email that has left the folder."""
+        self._first_seen.pop(internet_id, None)
+
+    def _folder_age(self, internet_id: str) -> timedelta:
+        """How long this email has been in the folder according to our first-seen record."""
+        ts = self._first_seen.get(internet_id)
+        if not ts:
+            return timedelta(0)
+        return datetime.now(timezone.utc) - datetime.fromisoformat(ts)
 
     def _in_cooldown(self, internet_msg_id: str) -> bool:
         ts = self._cooldown.get(internet_msg_id)
@@ -125,7 +151,6 @@ class CRMCaseFolderMonitor:
 
     def _set_cooldown(self, internet_msg_id: str):
         self._cooldown[internet_msg_id] = datetime.now(timezone.utc).isoformat()
-        self._save_cooldown()
 
     # ── Graph API helpers ─────────────────────────────────────────────────
 
@@ -168,8 +193,8 @@ class CRMCaseFolderMonitor:
 
     def check_and_retry(self) -> int:
         """
-        Find emails in 'Create CRM Case' older than AGE_THRESHOLD_MINUTES and
-        bounce each one through 'Create CRM Case retry (ignore)' back to source.
+        Scan 'Create CRM Case' for all current emails, record first-seen timestamps,
+        and bounce any that have been in the folder longer than AGE_THRESHOLD_MINUTES.
         Returns the number of emails bounced.
         """
         headers = self._headers()
@@ -184,40 +209,53 @@ class CRMCaseFolderMonitor:
             log.error(f"Folder '{RETRY_FOLDER}' not found under Inbox.")
             return 0
 
-        # Only look at emails older than the threshold
-        threshold = datetime.now(timezone.utc) - timedelta(minutes=AGE_THRESHOLD_MINUTES)
-        threshold_str = threshold.strftime("%Y-%m-%dT%H:%M:%SZ")
-
+        # Fetch ALL emails currently in the folder
         msgs_url = (
             f"{GRAPH_BASE}/users/{MAILBOX}/mailFolders/{source_id}/messages"
-            f"?$filter=receivedDateTime le {threshold_str}"
-            f"&$select=id,subject,receivedDateTime,internetMessageId,isRead"
+            f"?$select=id,subject,receivedDateTime,internetMessageId,isRead"
             f"&$top=50"
         )
         resp = requests.get(msgs_url, headers=headers, timeout=30)
         resp.raise_for_status()
         messages = resp.json().get("value", [])
 
+        # Track which internet IDs are currently in the folder
+        current_ids: set[str] = set()
+        for msg in messages:
+            iid = msg.get("internetMessageId") or msg["id"]
+            current_ids.add(iid)
+            self._record_first_seen(iid)  # no-op if already recorded
+
+        # Remove first_seen entries for emails that have left the folder (processed by Copilot)
+        gone = [iid for iid in self._first_seen if iid not in current_ids]
+        for iid in gone:
+            self._remove_first_seen(iid)
+            self._cooldown.pop(iid, None)
+
+        self._save_state()
+
         if not messages:
             return 0
 
-        log.info(f"Found {len(messages)} stale email(s) in '{SOURCE_FOLDER}'.")
         bounced = 0
+        threshold = timedelta(minutes=AGE_THRESHOLD_MINUTES)
 
         for msg in messages:
-            msg_id       = msg["id"]
-            internet_id  = msg.get("internetMessageId") or msg_id
-            subject      = msg.get("subject", "(no subject)")
-            received     = msg.get("receivedDateTime", "")
+            msg_id      = msg["id"]
+            internet_id = msg.get("internetMessageId") or msg_id
+            subject     = msg.get("subject", "(no subject)")
+
+            age = self._folder_age(internet_id)
+            if age < threshold:
+                continue  # not old enough yet
 
             if self._in_cooldown(internet_id):
                 log.info(f"  Skipping '{subject}' (recently bounced, still in cooldown).")
                 continue
 
-            age = datetime.now(timezone.utc) - datetime.fromisoformat(received.replace("Z", "+00:00"))
             log.info(
                 f"  Bouncing: '{subject}' "
-                f"(received {received}, age {str(age).split('.')[0]})"
+                f"(in folder for {str(age).split('.')[0]})"
             )
 
             try:
@@ -231,7 +269,10 @@ class CRMCaseFolderMonitor:
                 # Step 3 — move back to 'Create CRM Case'
                 self._move_message(headers, retry_msg_id, source_id)
 
+                # Reset first-seen so the retry gets a fresh 10-min window
+                self._reset_first_seen(internet_id)
                 self._set_cooldown(internet_id)
+                self._save_state()
                 log.info(f"  Bounced successfully.")
                 bounced += 1
 
