@@ -241,11 +241,13 @@ class CRMCaseFolderMonitor:
                 # Step 1 — move to retry folder
                 moved1 = self._move_message(headers, msg_id, retry_id)
                 retry_msg_id = moved1.get("id", msg_id)
+                time.sleep(5)
 
                 # Step 2 — mark as unread
                 self._mark_unread(headers, retry_msg_id)
 
                 # Step 3 — move back to 'Create CRM Case'
+                time.sleep(5)
                 self._move_message(headers, retry_msg_id, source_id)
 
                 # Reset first-seen so the retry gets a fresh 10-min window
