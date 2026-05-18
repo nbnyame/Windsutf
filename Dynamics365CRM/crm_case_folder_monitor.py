@@ -13,8 +13,8 @@ The timer starts from when the email is FIRST SEEN in 'Create CRM Case' by
 this monitor (not from receivedDateTime), so emails that were manually moved
 into the folder long after receipt are timed correctly.
 
-A per-email cooldown (keyed on internetMessageId, which survives folder moves)
-prevents the same email from being bounced more than once per COOLDOWN_MINUTES.
+After each bounce the first-seen timer resets to now, so if Copilot still
+fails to process it the email will be bounced again after another 10 minutes.
 """
 
 import json
@@ -41,8 +41,7 @@ RETRY_FOLDER   = "Create CRM Case retry (ignore)"
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
-AGE_THRESHOLD_MINUTES = 10   # bounce if email is older than this
-COOLDOWN_MINUTES      = 20   # don't re-bounce the same email within this window
+AGE_THRESHOLD_MINUTES = 10   # bounce if email has been in folder longer than this
 POLL_INTERVAL_SECONDS = 120  # check every 2 minutes
 
 STATE_FILE = os.path.join(os.path.dirname(__file__), "crm_folder_state.json")
@@ -76,9 +75,7 @@ class CRMCaseFolderMonitor:
             )
         self._token = None
         self._token_expires = 0
-        state = self._load_state()
-        self._first_seen: dict[str, str] = state.get("first_seen", {})
-        self._cooldown: dict[str, str]  = state.get("cooldown", {})
+        self._first_seen: dict[str, str] = self._load_state().get("first_seen", {})
 
     # ── Azure AD token ────────────────────────────────────────────────────
 
@@ -116,11 +113,8 @@ class CRMCaseFolderMonitor:
             return {}
 
     def _save_state(self):
-        now = datetime.now(timezone.utc)
-        cd_cutoff = (now - timedelta(minutes=COOLDOWN_MINUTES)).isoformat()
-        self._cooldown = {k: v for k, v in self._cooldown.items() if v > cd_cutoff}
         with open(STATE_FILE, "w") as f:
-            json.dump({"first_seen": self._first_seen, "cooldown": self._cooldown}, f)
+            json.dump({"first_seen": self._first_seen}, f)
 
     def _record_first_seen(self, internet_id: str):
         """Record now as the first time we see this email in the folder (idempotent)."""
@@ -141,16 +135,6 @@ class CRMCaseFolderMonitor:
         if not ts:
             return timedelta(0)
         return datetime.now(timezone.utc) - datetime.fromisoformat(ts)
-
-    def _in_cooldown(self, internet_msg_id: str) -> bool:
-        ts = self._cooldown.get(internet_msg_id)
-        if not ts:
-            return False
-        retried_at = datetime.fromisoformat(ts)
-        return (datetime.now(timezone.utc) - retried_at) < timedelta(minutes=COOLDOWN_MINUTES)
-
-    def _set_cooldown(self, internet_msg_id: str):
-        self._cooldown[internet_msg_id] = datetime.now(timezone.utc).isoformat()
 
     # ── Graph API helpers ─────────────────────────────────────────────────
 
@@ -230,7 +214,6 @@ class CRMCaseFolderMonitor:
         gone = [iid for iid in self._first_seen if iid not in current_ids]
         for iid in gone:
             self._remove_first_seen(iid)
-            self._cooldown.pop(iid, None)
 
         self._save_state()
 
@@ -248,10 +231,6 @@ class CRMCaseFolderMonitor:
             age = self._folder_age(internet_id)
             if age < threshold:
                 continue  # not old enough yet
-
-            if self._in_cooldown(internet_id):
-                log.info(f"  Skipping '{subject}' (recently bounced, still in cooldown).")
-                continue
 
             log.info(
                 f"  Bouncing: '{subject}' "
@@ -271,7 +250,6 @@ class CRMCaseFolderMonitor:
 
                 # Reset first-seen so the retry gets a fresh 10-min window
                 self._reset_first_seen(internet_id)
-                self._set_cooldown(internet_id)
                 self._save_state()
                 log.info(f"  Bounced successfully.")
                 bounced += 1
