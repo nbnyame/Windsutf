@@ -442,3 +442,93 @@ KEY PATTERNS TO LOOK FOR:
     - "Done. Processed {count} item(s)."
     - "No approved items to process."
 
+
+========================================
+FOLDER MONITOR LOG SAMPLES (folder_monitor.log)
+========================================
+
+NOTES:
+- Separate script: crm_case_folder_monitor.py  (run via start_folder_monitor.bat)
+- Watches: supportcenter@winmarkcorporation.com / Inbox / Create CRM Case
+- Timers based on first-seen by monitor, NOT receivedDateTime
+- Stage 1: email in 'Create CRM Case' >= 10 min  -> move to 'Retry' subfolder, mark READ
+- Stage 2: email in 'Create CRM Case/Retry' >= 10 min -> move to main Inbox
+- Polls every 2 minutes; output also goes to folder_monitor_output.log
+
+
+# ===== FM SCENARIO 1: Monitor Startup =====
+2026-05-18 14:59:14,939 [INFO] ============================================================
+2026-05-18 14:59:14,939 [INFO] CRM Case Folder Monitor starting
+2026-05-18 14:59:14,940 [INFO] Watching : supportcenter@winmarkcorporation.com / Inbox / Create CRM Case
+2026-05-18 14:59:14,940 [INFO] Stage 1  : >=10 min in 'Create CRM Case' -> move to 'Retry' subfolder, mark read
+2026-05-18 14:59:14,970 [INFO] Stage 2  : >=10 min in 'Retry' -> move to Inbox
+2026-05-18 14:59:14,970 [INFO] Interval : 120s
+2026-05-18 14:59:14,970 [INFO] ============================================================
+2026-05-18 14:59:15,553 [INFO] Graph API token acquired/refreshed.
+
+
+# ===== FM SCENARIO 2: Normal Poll - No Stale Emails =====
+# Email has been in 'Create CRM Case' for less than 10 min; nothing to do.
+# (No output logged during quiet cycles - monitor silently records first-seen and moves on)
+
+
+# ===== FM SCENARIO 3: Stage 1 - Stale Email Moved to Retry (mark read) =====
+# Email has been in 'Create CRM Case' for >= 10 min without Copilot processing it.
+2026-05-18 14:42:35,617 [INFO]   Moving to 'Create CRM Case/Retry': 'Re: fix input entry' (in folder for 0:10:01)
+2026-05-18 14:42:41,828 [INFO]   Moved successfully.
+# After this: timer resets. Email will be watched in 'Retry' folder now.
+
+
+# ===== FM SCENARIO 4: Stage 2 - Email in Retry Too Long, Moved to Inbox =====
+# Email has been in 'Create CRM Case/Retry' for >= 10 min; Copilot still hasn't picked it up.
+# Moved to main Inbox for manual handling.
+2026-05-18 14:42:46,889 [INFO]   Moving to Inbox: 'Re: fix input entry' (in folder for 0:10:01)
+2026-05-18 14:42:52,444 [INFO]   Moved successfully.
+
+
+# ===== FM SCENARIO 5: Both Stages in Same Cycle =====
+# One email ready for Stage 1, another already in Retry ready for Stage 2.
+2026-05-18 15:10:00,123 [INFO] Graph API token acquired/refreshed.
+2026-05-18 15:10:01,456 [INFO]   Moving to 'Create CRM Case/Retry': 'Platos Closet 80714 - POS issue' (in folder for 0:10:03)
+2026-05-18 15:10:07,789 [INFO]   Moved successfully.
+2026-05-18 15:10:08,012 [INFO]   Moving to Inbox: 'Re: Store 21039 DRS Access Issue' (in folder for 0:12:45)
+2026-05-18 15:10:14,234 [INFO]   Moved successfully.
+2026-05-18 15:10:14,235 [INFO] Bounced 2 email(s) this cycle.
+
+
+# ===== FM SCENARIO 6: Folder Not Found Error =====
+# If 'Create CRM Case' or 'Retry' subfolder is missing/renamed.
+2026-05-18 15:15:00,123 [INFO] Graph API token acquired/refreshed.
+2026-05-18 15:15:01,456 [ERROR] Subfolder 'Retry' not found under 'Create CRM Case'.
+
+
+# ===== FM SCENARIO 7: Move Failure (Transient API Error) =====
+2026-05-18 15:20:00,123 [INFO] Graph API token acquired/refreshed.
+2026-05-18 15:20:01,456 [INFO]   Moving to 'Create CRM Case/Retry': 'Store 21158 Hardware Issue' (in folder for 0:11:30)
+2026-05-18 15:20:02,789 [ERROR]   Failed to move 'Store 21158 Hardware Issue': 503 Server Error: Service Unavailable
+
+
+========================================
+FOLDER MONITOR KEY PATTERNS:
+========================================
+
+1. STARTUP:
+   - "CRM Case Folder Monitor starting"
+   - "Watching : {mailbox} / Inbox / Create CRM Case"
+   - "Stage 1  : >={N} min in 'Create CRM Case' -> move to 'Retry' subfolder, mark read"
+   - "Stage 2  : >={N} min in 'Retry' -> move to Inbox"
+
+2. STAGE 1 - MOVED TO RETRY:
+   - "Moving to 'Create CRM Case/Retry': '{subject}' (in folder for {duration})"
+   - "Moved successfully."
+
+3. STAGE 2 - MOVED TO INBOX:
+   - "Moving to Inbox: '{subject}' (in folder for {duration})"
+   - "Moved successfully."
+
+4. CYCLE SUMMARY (only logged when emails were moved):
+   - "Bounced {count} email(s) this cycle."
+
+5. ERRORS:
+   - "Subfolder '{name}' not found under '{parent}'" - Folder missing/renamed
+   - "Failed to move '{subject}': {error}" - API error during move
