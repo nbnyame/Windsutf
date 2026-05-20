@@ -171,13 +171,49 @@ Case ggg777-hhh888-iii999 assigned to team successfully.
 2026-05-12 15:11:57,349 [INFO]   Time Difference: 0:02:55 (Created - Received)
 
 
-# ===== SCENARIO 10: Validation Error - Failed Item =====
+# ===== SCENARIO 10: Validation Error - Failed Item (Bad Subject) =====
 2026-05-12 15:15:00,123 [INFO] Found 1 approved item(s) to process.
 2026-05-12 15:15:00,456 [INFO] Item 1243 status updated to 'Processing'.
 2026-05-12 15:15:00,457 [INFO] Processing store 99999...
 2026-05-12 15:15:00,458 [INFO]   Params: contact=Test User, phone=555-1234, subject=Invalid Subject, case_type=Unknown Type
 2026-05-12 15:15:00,789 [ERROR] Validation error for item 1243 (store 99999): Invalid subject 'Invalid Subject': Subject 'Invalid Subject' not found in CRM
 2026-05-12 15:15:01,012 [INFO]   Item 1243 marked as Failed: Invalid subject 'Invalid Subject': Subject 'Invalid Subject' not found in CRM
+
+
+# ===== SCENARIO 10b: Invalid Store Number - Store Does Not Exist in CRM =====
+# Store number entered by AI does not exist at all in CRM.
+# Email is moved back to Inbox and marked unread for manual handling.
+2026-05-19 19:47:00,364 [INFO] Found 1 approved item(s) to process.
+2026-05-19 19:47:00,994 [INFO] Item 1903 status updated to 'Processing'.
+2026-05-19 19:47:00,998 [INFO] Processing store 10804...
+2026-05-19 19:47:00,999 [INFO]   Params: contact=Staff, phone=(417) 883-7444, subject=Locked Buy, case_type=Active
+2026-05-19 19:47:02,934 [INFO]   [Email Verification] [OK] Found email in 'Create CRM Case' at 2026-05-20T00:43:30Z from no-reply@zoom.us
+2026-05-19 19:47:04,016 [INFO]   No duplicate found. Creating case...
+2026-05-19 19:47:04,030 [ERROR] Invalid store number for item 1903 (store 10804): No account found for store number '10804'.
+2026-05-19 19:47:04,538 [WARNING] Failed to update with error message, retrying without it...
+2026-05-19 19:47:05,110 [INFO] Item 1903 status updated to 'Invalid Store Number' (without error message).
+2026-05-19 19:47:05,112 [INFO]   Item 1903 marked as Invalid Store Number: No account found for store number '10804'.
+2026-05-19 19:47:05,112 [INFO]   [Email] Moving verified email back to Inbox and marking unread...
+2026-05-19 19:47:05,667 [INFO]   [Email] Moved email to Inbox.
+2026-05-19 19:47:06,191 [INFO]   [Email] Marked email as unread.
+
+
+# ===== SCENARIO 10c: Invalid Store Number - Store Exists But Is Inactive/Closed =====
+# Store number exists in CRM but account is inactive (closed store).
+# Treated identically to a missing store — email moved to Inbox, item flagged.
+2026-05-19 19:57:03,462 [INFO] Found 1 approved item(s) to process.
+2026-05-19 19:57:04,011 [INFO] Item 1904 status updated to 'Processing'.
+2026-05-19 19:57:04,017 [INFO] Processing store 10408...
+2026-05-19 19:57:04,017 [INFO]   Params: contact=Staff, phone=(417) 883-7444, subject=Locked Buy, case_type=Active
+2026-05-19 19:57:04,867 [INFO]   [Email Verification] [OK] Found email in 'Calls Entered' at 2026-05-20T00:43:30Z from no-reply@zoom.us
+2026-05-19 19:57:06,039 [INFO]   No duplicate found. Creating case...
+2026-05-19 19:57:06,050 [ERROR] Invalid store number for item 1904 (store 10408): Account for store number '10408' is inactive/closed.
+2026-05-19 19:57:06,538 [WARNING] Failed to update with error message, retrying without it...
+2026-05-19 19:57:07,110 [INFO] Item 1904 status updated to 'Invalid Store Number' (without error message).
+2026-05-19 19:57:07,112 [INFO]   Item 1904 marked as Invalid Store Number: Account for store number '10408' is inactive/closed.
+2026-05-19 19:57:07,112 [INFO]   [Email] Moving verified email back to Inbox and marking unread...
+2026-05-19 19:57:07,667 [INFO]   [Email] Moved email to Inbox.
+2026-05-19 19:57:08,191 [INFO]   [Email] Marked email as unread.
 
 
 # ===== SCENARIO 11: Multiple Items in One Poll =====
@@ -430,9 +466,24 @@ KEY PATTERNS TO LOOK FOR:
    - "Draft not found on first check" + "Retrying" - Retry logic
    - "No draft found...after retry" - Failed to find
 
-9. VALIDATION ERRORS:
-   - "Validation error for item {id}"
-   - "Item {id} marked as Failed"
+9. VALIDATION ERRORS (bad subject / case type):
+   - "Validation error for item {id} (store {store}): {reason}"
+   - "Item {id} marked as Failed: {reason}"
+
+9b. INVALID STORE NUMBER (store not in CRM):
+   - "Invalid store number for item {id} (store {store}): No account found for store number '{store}'."
+   - "Item {id} marked as Invalid Store Number: No account found for store number '{store}'."
+   - "[Email] Moving verified email back to Inbox and marking unread..."
+   - "[Email] Moved email to Inbox."
+   - "[Email] Marked email as unread."
+
+9c. INVALID STORE NUMBER (store inactive/closed in CRM):
+   - "Invalid store number for item {id} (store {store}): Account for store number '{store}' is inactive/closed."
+   - "Item {id} marked as Invalid Store Number: Account for store number '{store}' is inactive/closed."
+   - Same email-to-Inbox flow as 9b above.
+   - NOTE: The key distinction is the error message suffix:
+       * Never existed  -> "No account found for store number '{store}'."
+       * Inactive/closed -> "Account for store number '{store}' is inactive/closed."
 
 10. STATUS UPDATES:
     - "Item {id} status updated to 'Processing'"
