@@ -11,7 +11,7 @@ NOTES:
 
 - Email verification now:
   * Waits 30 seconds and retries if email not found initially
-  * Checks "Create CRM Case" subfolder on retry attempt
+  * Checks "Create CRM Case" AND "Create CRM Case/Retry" subfolder on every attempt
   * If still not found, tries +/-12h (AM/PM swap) and +/-24h (wrong date) offsets
   * If found at an offset, auto-corrects SharePoint (Dateandtime/Time) and CRM (received-on)
   * Updates SharePoint "EmailVerification" column (Yes/No) based on result
@@ -447,11 +447,13 @@ KEY PATTERNS TO LOOK FOR:
 
 6. EMAIL VERIFICATION:
    - "[OK] Found email in '{folder}' at {time} from {email}" - Success (immediate)
+   - "[OK] Found email in 'Create CRM Case/Retry' at {time} from {email}" - Found in Retry subfolder
    - "Email not found on first check. Waiting 10 seconds" - Retry initiated
    - "Retrying email search in {folders}" - Second attempt (same folders, incl. Create CRM Case)
    - "[NOT FOUND] No email found in..." - Not found after retry
    - "Expected sender: {email}" - Shows expected email for Email/Internal origins
-   - Note: 'Create CRM Case' folder is always included in BOTH attempts
+   - Note: 'Create CRM Case' AND 'Create CRM Case/Retry' are always searched on BOTH attempts
+   - Note: Retry subfolder is used by folder_monitor.py to stage emails awaiting Copilot retry
 
 7. TIME-CORRECTED EMAIL VERIFICATION (runs BEFORE case creation):
    - "Trying time-corrected search (+/-12h, +/-24h)..." - Offset search initiated

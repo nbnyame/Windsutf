@@ -544,6 +544,65 @@ class SharePointPoller:
         
         return None
 
+    def _search_subfolder(self, folder_path, start_time, end_time, check_sender, email_address, headers):
+        """
+        Search messages in a folder identified by a display-name path from the mailbox root.
+        e.g. folder_path=["Create CRM Case", "Retry"] navigates root -> Create CRM Case -> Retry.
+        Returns the same dict shape as _search_email_in_folders, or None.
+        """
+        current_url = f"{GRAPH_BASE}/users/{DRAFT_TARGET_MAILBOX}/mailFolders"
+        folder_id = None
+
+        for name in folder_path:
+            found_id = None
+            page_url = current_url
+            while page_url:
+                resp = requests.get(page_url, headers=headers, timeout=30)
+                resp.raise_for_status()
+                for f in resp.json().get("value", []):
+                    if f.get("displayName") == name:
+                        found_id = f["id"]
+                        break
+                if found_id:
+                    break
+                page_url = resp.json().get("@odata.nextLink")
+            if not found_id:
+                return None
+            folder_id = found_id
+            current_url = f"{GRAPH_BASE}/users/{DRAFT_TARGET_MAILBOX}/mailFolders/{folder_id}/childFolders"
+
+        if not folder_id:
+            return None
+
+        filter_query = f"receivedDateTime ge {start_time} and receivedDateTime le {end_time}"
+        messages_url = (
+            f"{GRAPH_BASE}/users/{DRAFT_TARGET_MAILBOX}/mailFolders/{folder_id}/messages"
+            f"?$filter={filter_query}"
+            f"&$select=id,subject,receivedDateTime,from"
+            f"&$top=20"
+        )
+        msg_resp = requests.get(messages_url, headers=headers, timeout=30)
+        msg_resp.raise_for_status()
+        messages = msg_resp.json().get("value", [])
+
+        if check_sender and email_address:
+            expected = email_address.lower()
+            messages = [
+                m for m in messages
+                if m.get("from", {}).get("emailAddress", {}).get("address", "").lower() == expected
+            ]
+
+        if messages:
+            msg = messages[0]
+            return {
+                "folder_name": "/".join(folder_path),
+                "msg_id": msg.get("id", ""),
+                "msg_time": msg.get("receivedDateTime", ""),
+                "msg_from": msg.get("from", {}).get("emailAddress", {}).get("address", ""),
+                "match_count": len(messages),
+            }
+        return None
+
     def _maybe_narrow_result(self, result, config_key, base_dt, folders, check_sender,
                               email_address, parent_folder, parent_location, headers):
         """If multiple emails found for a time-only origin, narrow the window to ±1 min."""
@@ -663,6 +722,16 @@ class SharePointPoller:
                     folders, check_sender, email_address, start_time, end_time,
                     parent_folder, parent_location, headers
                 )
+
+                # Also search Create CRM Case/Retry (email may have been staged there
+                # by the folder monitor between the time the item was approved and
+                # when this poller run picked it up)
+                if not result:
+                    result = self._search_subfolder(
+                        ["Create CRM Case", "Retry"],
+                        start_time, end_time,
+                        check_sender, email_address, headers
+                    )
                 
                 if result:
                     result = self._maybe_narrow_result(
