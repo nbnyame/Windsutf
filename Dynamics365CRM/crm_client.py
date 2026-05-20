@@ -483,17 +483,34 @@ class Dynamics365Client:
         }
 
     def lookup_account_by_store(self, store_number):
-        """Look up an account by its store number (win_storenumber)."""
+        """Look up an active account by its store number (win_storenumber).
+
+        Raises ValueError if no active account is found.  If an account exists
+        but is inactive/closed the error message says so explicitly so the
+        caller can surface a meaningful status.
+        """
         params = {
             "$top": 1,
-            "$filter": f"accountnumber eq '{store_number}'",
+            "$filter": f"accountnumber eq '{store_number}' and statecode eq 0",
             "$select": "accountid,name,accountnumber",
         }
         response = self._request("GET", "accounts", params=params)
         accounts = response.json().get("value", [])
-        if not accounts:
-            raise ValueError(f"No account found for store number '{store_number}'.")
-        return accounts[0]
+        if accounts:
+            return accounts[0]
+
+        # No active account — check whether an inactive one exists
+        params_any = {
+            "$top": 1,
+            "$filter": f"accountnumber eq '{store_number}'",
+            "$select": "accountid,name,accountnumber,statecode",
+        }
+        response_any = self._request("GET", "accounts", params=params_any)
+        if response_any.json().get("value"):
+            raise ValueError(
+                f"Account for store number '{store_number}' is inactive/closed."
+            )
+        raise ValueError(f"No account found for store number '{store_number}'.")
 
     def create_case(self, description, account_id=None, store_number=None,
                     priority=None, contact=None, contact_phone=None,

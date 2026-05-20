@@ -977,7 +977,7 @@ class SharePointPoller:
                 try:
                     result = crm_client.create_case(**case_params)
                 except ValueError as e:
-                    if "No account found for store number" in str(e):
+                    if "No account found for store number" in str(e) or "is inactive/closed" in str(e):
                         raise InvalidStoreNumberError(str(e))
                     raise
 
