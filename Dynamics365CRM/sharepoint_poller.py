@@ -723,12 +723,17 @@ class SharePointPoller:
                     parent_folder, parent_location, headers
                 )
 
-                # Also search Create CRM Case/Retry (email may have been staged there
-                # by the folder monitor between the time the item was approved and
-                # when this poller run picked it up)
+                # Also search Create CRM Case/Retry and Create CRM Case/Retry 2
+                # (email may have been staged there by the folder monitor)
                 if not result:
                     result = self._search_subfolder(
                         ["Create CRM Case", "Retry"],
+                        start_time, end_time,
+                        check_sender, email_address, headers
+                    )
+                if not result:
+                    result = self._search_subfolder(
+                        ["Create CRM Case", "Retry 2"],
                         start_time, end_time,
                         check_sender, email_address, headers
                     )

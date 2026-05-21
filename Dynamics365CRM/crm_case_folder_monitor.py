@@ -2,15 +2,19 @@
 CRM Case Folder Monitor
 Watches the 'Create CRM Case' inbox subfolder in the shared mailbox.
 
-Two-stage handling for emails that Copilot / Power Automate fails to process:
+Three-stage handling for emails that Copilot / Power Automate fails to process:
 
   Stage 1 — 'Create CRM Case' folder:
-    If an email has been there for >= MOVE_TO_RETRY_MINUTES (7 min), move it
+    If an email has been there for >= MOVE_TO_RETRY_MINUTES (10 min), move it
     to the 'Retry' subfolder (child of 'Create CRM Case') and mark it as READ
     so Copilot can retry processing.
 
   Stage 2 — 'Create CRM Case/Retry' folder:
-    If an email has been there for >= MOVE_TO_INBOX_MINUTES (10 min) without
+    If an email has been there for >= MOVE_TO_RETRY2_MINUTES (10 min) without
+    Copilot picking it up, move it to the 'Retry 2' subfolder for a second retry.
+
+  Stage 3 — 'Create CRM Case/Retry 2' folder:
+    If an email has been there for >= MOVE_TO_INBOX_MINUTES (7 min) without
     Copilot picking it up, move it to the main Inbox for manual handling.
 
 Timers are based on first-seen by this monitor (not receivedDateTime).
@@ -37,11 +41,13 @@ CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
 MAILBOX          = os.getenv("DRAFT_TARGET_MAILBOX", "supportcenter@winmarkcorporation.com")
 SOURCE_FOLDER    = "Create CRM Case"   # Inbox child
 RETRY_SUBFOLDER  = "Retry"             # child of SOURCE_FOLDER
+RETRY2_SUBFOLDER = "Retry 2"           # child of SOURCE_FOLDER
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
-MOVE_TO_RETRY_MINUTES = 10  # in SOURCE_FOLDER this long → move to Retry, mark read
-MOVE_TO_INBOX_MINUTES = 10  # in RETRY_SUBFOLDER this long → move to Inbox
+MOVE_TO_RETRY_MINUTES  = 10  # in SOURCE_FOLDER this long  → move to Retry,   mark read
+MOVE_TO_RETRY2_MINUTES = 10  # in RETRY_SUBFOLDER this long → move to Retry 2
+MOVE_TO_INBOX_MINUTES  = 7   # in RETRY2_SUBFOLDER this long → move to Inbox
 POLL_INTERVAL_SECONDS = 120  # check every 2 minutes
 
 STATE_FILE = os.path.join(os.path.dirname(__file__), "crm_folder_state.json")
@@ -247,8 +253,9 @@ class CRMCaseFolderMonitor:
 
     def check_and_retry(self) -> int:
         """
-        Stage 1: emails in 'Create CRM Case' >= 7 min → move to 'Retry' subfolder, mark read.
-        Stage 2: emails in 'Create CRM Case/Retry' >= 10 min → move to Inbox.
+        Stage 1: emails in 'Create CRM Case' >= 10 min → move to 'Retry',   mark read.
+        Stage 2: emails in 'Create CRM Case/Retry' >= 10 min → move to 'Retry 2'.
+        Stage 3: emails in 'Create CRM Case/Retry 2' >= 7 min  → move to Inbox.
         Returns total emails moved.
         """
         headers = self._headers()
@@ -263,29 +270,41 @@ class CRMCaseFolderMonitor:
             log.error(f"Subfolder '{RETRY_SUBFOLDER}' not found under '{SOURCE_FOLDER}'.")
             return 0
 
+        retry2_id = self._get_child_folder_id(headers, source_id, RETRY2_SUBFOLDER)
+        if not retry2_id:
+            log.error(f"Subfolder '{RETRY2_SUBFOLDER}' not found under '{SOURCE_FOLDER}'.")
+            return 0
+
         all_seen_ids: set[str] = set()
 
-        # Stage 1: Create CRM Case → Retry (7 min, mark read)
+        # Stage 1: Create CRM Case → Retry (10 min, mark read)
         moved1 = self._scan_folder(
             headers, source_id, MOVE_TO_RETRY_MINUTES,
             retry_id, f"'{SOURCE_FOLDER}/{RETRY_SUBFOLDER}'",
             mark_read=True, all_seen_ids=all_seen_ids
         )
 
-        # Stage 2: Retry → Inbox (10 min, no read change)
+        # Stage 2: Retry → Retry 2 (10 min, no read change)
         moved2 = self._scan_folder(
-            headers, retry_id, MOVE_TO_INBOX_MINUTES,
+            headers, retry_id, MOVE_TO_RETRY2_MINUTES,
+            retry2_id, f"'{SOURCE_FOLDER}/{RETRY2_SUBFOLDER}'",
+            mark_read=False, all_seen_ids=all_seen_ids
+        )
+
+        # Stage 3: Retry 2 → Inbox (7 min, no read change)
+        moved3 = self._scan_folder(
+            headers, retry2_id, MOVE_TO_INBOX_MINUTES,
             "inbox", "Inbox",
             mark_read=False, all_seen_ids=all_seen_ids
         )
 
-        # Clean up first_seen for emails no longer in either folder
+        # Clean up first_seen for emails no longer in any watched folder
         gone = [iid for iid in self._first_seen if iid not in all_seen_ids]
         for iid in gone:
             self._remove_first_seen(iid)
 
         self._save_state()
-        return moved1 + moved2
+        return moved1 + moved2 + moved3
 
     # ── Run loop ──────────────────────────────────────────────────────────
 
@@ -294,7 +313,8 @@ class CRMCaseFolderMonitor:
         log.info("CRM Case Folder Monitor starting")
         log.info(f"Watching : {MAILBOX} / Inbox / {SOURCE_FOLDER}")
         log.info(f"Stage 1  : >={MOVE_TO_RETRY_MINUTES} min in '{SOURCE_FOLDER}' → move to '{RETRY_SUBFOLDER}' subfolder, mark read")
-        log.info(f"Stage 2  : >={MOVE_TO_INBOX_MINUTES} min in '{RETRY_SUBFOLDER}' → move to Inbox")
+        log.info(f"Stage 2  : >={MOVE_TO_RETRY2_MINUTES} min in '{RETRY_SUBFOLDER}' → move to '{RETRY2_SUBFOLDER}' subfolder")
+        log.info(f"Stage 3  : >={MOVE_TO_INBOX_MINUTES} min in '{RETRY2_SUBFOLDER}' → move to Inbox")
         log.info(f"Interval : {POLL_INTERVAL_SECONDS}s")
         log.info("=" * 60)
 

@@ -11,7 +11,7 @@ NOTES:
 
 - Email verification now:
   * Waits 30 seconds and retries if email not found initially
-  * Checks "Create CRM Case" AND "Create CRM Case/Retry" subfolder on every attempt
+  * Checks "Create CRM Case", "Create CRM Case/Retry", and "Create CRM Case/Retry 2" on every attempt
   * If still not found, tries +/-12h (AM/PM swap) and +/-24h (wrong date) offsets
   * If found at an offset, auto-corrects SharePoint (Dateandtime/Time) and CRM (received-on)
   * Updates SharePoint "EmailVerification" column (Yes/No) based on result
@@ -448,12 +448,13 @@ KEY PATTERNS TO LOOK FOR:
 6. EMAIL VERIFICATION:
    - "[OK] Found email in '{folder}' at {time} from {email}" - Success (immediate)
    - "[OK] Found email in 'Create CRM Case/Retry' at {time} from {email}" - Found in Retry subfolder
+   - "[OK] Found email in 'Create CRM Case/Retry 2' at {time} from {email}" - Found in Retry 2 subfolder
    - "Email not found on first check. Waiting 10 seconds" - Retry initiated
    - "Retrying email search in {folders}" - Second attempt (same folders, incl. Create CRM Case)
    - "[NOT FOUND] No email found in..." - Not found after retry
    - "Expected sender: {email}" - Shows expected email for Email/Internal origins
-   - Note: 'Create CRM Case' AND 'Create CRM Case/Retry' are always searched on BOTH attempts
-   - Note: Retry subfolder is used by folder_monitor.py to stage emails awaiting Copilot retry
+   - Note: 'Create CRM Case', 'Create CRM Case/Retry', and 'Create CRM Case/Retry 2' are always searched on BOTH attempts
+   - Note: Retry/Retry 2 subfolders are used by folder_monitor.py to stage emails awaiting Copilot retry
 
 7. TIME-CORRECTED EMAIL VERIFICATION (runs BEFORE case creation):
    - "Trying time-corrected search (+/-12h, +/-24h)..." - Offset search initiated
@@ -504,8 +505,9 @@ NOTES:
 - Separate script: crm_case_folder_monitor.py  (run via start_folder_monitor.bat)
 - Watches: supportcenter@winmarkcorporation.com / Inbox / Create CRM Case
 - Timers based on first-seen by monitor, NOT receivedDateTime
-- Stage 1: email in 'Create CRM Case' >= 10 min  -> move to 'Retry' subfolder, mark READ
-- Stage 2: email in 'Create CRM Case/Retry' >= 10 min -> move to main Inbox
+- Stage 1: email in 'Create CRM Case' >= 10 min      -> move to 'Retry' subfolder, mark READ
+- Stage 2: email in 'Create CRM Case/Retry' >= 10 min -> move to 'Retry 2' subfolder
+- Stage 3: email in 'Create CRM Case/Retry 2' >= 7 min -> move to main Inbox
 - Polls every 2 minutes; output also goes to folder_monitor_output.log
 
 
@@ -514,7 +516,8 @@ NOTES:
 2026-05-18 14:59:14,939 [INFO] CRM Case Folder Monitor starting
 2026-05-18 14:59:14,940 [INFO] Watching : supportcenter@winmarkcorporation.com / Inbox / Create CRM Case
 2026-05-18 14:59:14,940 [INFO] Stage 1  : >=10 min in 'Create CRM Case' -> move to 'Retry' subfolder, mark read
-2026-05-18 14:59:14,970 [INFO] Stage 2  : >=10 min in 'Retry' -> move to Inbox
+2026-05-18 14:59:14,940 [INFO] Stage 2  : >=10 min in 'Retry' -> move to 'Retry 2' subfolder
+2026-05-18 14:59:14,941 [INFO] Stage 3  : >=7 min in 'Retry 2' -> move to Inbox
 2026-05-18 14:59:14,970 [INFO] Interval : 120s
 2026-05-18 14:59:14,970 [INFO] ============================================================
 2026-05-18 14:59:15,553 [INFO] Graph API token acquired/refreshed.
@@ -532,11 +535,18 @@ NOTES:
 # After this: timer resets. Email will be watched in 'Retry' folder now.
 
 
-# ===== FM SCENARIO 4: Stage 2 - Email in Retry Too Long, Moved to Inbox =====
+# ===== FM SCENARIO 4: Stage 2 - Email in Retry Too Long, Moved to Retry 2 =====
 # Email has been in 'Create CRM Case/Retry' for >= 10 min; Copilot still hasn't picked it up.
-# Moved to main Inbox for manual handling.
-2026-05-18 14:42:46,889 [INFO]   Moving to Inbox: 'Re: fix input entry' (in folder for 0:10:01)
+# Moved to 'Create CRM Case/Retry 2' for a second retry opportunity.
+2026-05-18 14:42:46,889 [INFO]   Moving to 'Create CRM Case/Retry 2': 'Re: fix input entry' (in folder for 0:10:01)
 2026-05-18 14:42:52,444 [INFO]   Moved successfully.
+
+
+# ===== FM SCENARIO 4b: Stage 3 - Email in Retry 2 Too Long, Moved to Inbox =====
+# Email has been in 'Create CRM Case/Retry 2' for >= 7 min; Copilot still hasn't picked it up.
+# Moved to main Inbox for manual handling.
+2026-05-18 14:53:00,123 [INFO]   Moving to Inbox: 'Re: fix input entry' (in folder for 0:07:05)
+2026-05-18 14:53:06,456 [INFO]   Moved successfully.
 
 
 # ===== FM SCENARIO 5: Both Stages in Same Cycle =====
@@ -544,7 +554,7 @@ NOTES:
 2026-05-18 15:10:00,123 [INFO] Graph API token acquired/refreshed.
 2026-05-18 15:10:01,456 [INFO]   Moving to 'Create CRM Case/Retry': 'Platos Closet 80714 - POS issue' (in folder for 0:10:03)
 2026-05-18 15:10:07,789 [INFO]   Moved successfully.
-2026-05-18 15:10:08,012 [INFO]   Moving to Inbox: 'Re: Store 21039 DRS Access Issue' (in folder for 0:12:45)
+2026-05-18 15:10:08,012 [INFO]   Moving to 'Create CRM Case/Retry 2': 'Re: Store 21039 DRS Access Issue' (in folder for 0:12:45)
 2026-05-18 15:10:14,234 [INFO]   Moved successfully.
 2026-05-18 15:10:14,235 [INFO] Bounced 2 email(s) this cycle.
 
@@ -569,19 +579,24 @@ FOLDER MONITOR KEY PATTERNS:
    - "CRM Case Folder Monitor starting"
    - "Watching : {mailbox} / Inbox / Create CRM Case"
    - "Stage 1  : >={N} min in 'Create CRM Case' -> move to 'Retry' subfolder, mark read"
-   - "Stage 2  : >={N} min in 'Retry' -> move to Inbox"
+   - "Stage 2  : >={N} min in 'Retry' -> move to 'Retry 2' subfolder"
+   - "Stage 3  : >={N} min in 'Retry 2' -> move to Inbox"
 
 2. STAGE 1 - MOVED TO RETRY:
    - "Moving to 'Create CRM Case/Retry': '{subject}' (in folder for {duration})"
    - "Moved successfully."
 
-3. STAGE 2 - MOVED TO INBOX:
+3. STAGE 2 - MOVED TO RETRY 2:
+   - "Moving to 'Create CRM Case/Retry 2': '{subject}' (in folder for {duration})"
+   - "Moved successfully."
+
+4. STAGE 3 - MOVED TO INBOX:
    - "Moving to Inbox: '{subject}' (in folder for {duration})"
    - "Moved successfully."
 
-4. CYCLE SUMMARY (only logged when emails were moved):
+5. CYCLE SUMMARY (only logged when emails were moved):
    - "Bounced {count} email(s) this cycle."
 
-5. ERRORS:
+6. ERRORS:
    - "Subfolder '{name}' not found under '{parent}'" - Folder missing/renamed
    - "Failed to move '{subject}': {error}" - API error during move
