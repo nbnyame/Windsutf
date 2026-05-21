@@ -9,7 +9,9 @@ import {
   Clock,
   Store,
   Package,
-  Calendar
+  Calendar,
+  RotateCcw,
+  Inbox
 } from 'lucide-react';
 import './App.css';
 
@@ -46,6 +48,8 @@ function App() {
         response = await axios.get(`/api/duplicates?date=${date}`);
       } else if (activeTab === 'error') {
         response = await axios.get(`/api/errors?date=${date}`);
+      } else if (activeTab === 'retry') {
+        response = await axios.get(`/api/retries?date=${date}`);
       }
       setEvents(response.data);
     } catch (err) {
@@ -93,6 +97,8 @@ function App() {
         return <RefreshCw className="event-icon duplicate" />;
       case 'error':
         return <AlertCircle className="event-icon error" />;
+      case 'retry':
+        return <RotateCcw className="event-icon retry" />;
       default:
         return <Clock className="event-icon" />;
     }
@@ -104,6 +110,15 @@ function App() {
 
   const getTodayDate = () => {
     return new Date().toISOString().split('T')[0];
+  };
+
+  const isTimeDifferenceOverOneHour = (timeDiff) => {
+    if (!timeDiff) return false;
+    // Parse time difference like "0:05:15" or "1:30:00" or "17:55:40"
+    const parts = timeDiff.split(':');
+    if (parts.length < 2) return false;
+    const hours = parseInt(parts[0]);
+    return hours >= 1;
   };
 
   const renderEventCard = (event, index) => {
@@ -132,9 +147,37 @@ function App() {
                 <span>Case Type: {event.case_type}</span>
               </div>
               {event.time_difference && (
-                <div className="event-detail time-difference">
+                <div className={`event-detail time-difference ${isTimeDifferenceOverOneHour(event.time_difference) ? 'over-one-hour' : ''}`}>
                   <Clock size={16} />
                   <span>Time Difference: {event.time_difference}</span>
+                </div>
+              )}
+              <div className="event-detail email-verification">
+                {event.email_verified ? (
+                  <>
+                    <span className="email-check">✓</span>
+                    <span>Email Verified</span>
+                  </>
+                ) : (
+                  <>
+                    <span className="email-x">✗</span>
+                    <span>Email Not Found</span>
+                  </>
+                )}
+              </div>
+              {event.draft_status && (
+                <div className="event-detail draft-status">
+                  {event.draft_status === 'moved' ? (
+                    <>
+                      <span className="draft-check">✓</span>
+                      <span>Draft Reply Moved</span>
+                    </>
+                  ) : event.draft_status === 'not_found' ? (
+                    <>
+                      <span className="draft-x">✗</span>
+                      <span>No Draft Found</span>
+                    </>
+                  ) : null}
                 </div>
               )}
               <div className="event-detail case-status">
@@ -186,6 +229,60 @@ function App() {
             <div className="error-message">
               {event.message}
             </div>
+          )}
+          {event.type === 'retry' && (
+            <>
+              {event.action === 'moved_to_retry' && (
+                <>
+                  <div className="event-detail retry-action retry-stage1">
+                    <RotateCcw size={16} />
+                    <span>Moved to Retry subfolder</span>
+                  </div>
+                  <div className="event-detail retry-subject">
+                    <span>{event.subject}</span>
+                  </div>
+                  <div className="event-detail retry-duration">
+                    <Clock size={14} />
+                    <span>In folder for {event.duration}</span>
+                  </div>
+                </>
+              )}
+              {event.action === 'moved_to_retry2' && (
+                <>
+                  <div className="event-detail retry-action retry-stage2">
+                    <RotateCcw size={16} />
+                    <span>Moved to Retry 2 subfolder</span>
+                  </div>
+                  <div className="event-detail retry-subject">
+                    <span>{event.subject}</span>
+                  </div>
+                  <div className="event-detail retry-duration">
+                    <Clock size={14} />
+                    <span>In folder for {event.duration}</span>
+                  </div>
+                </>
+              )}
+              {event.action === 'moved_to_inbox' && (
+                <>
+                  <div className="event-detail retry-action retry-stage3">
+                    <Inbox size={16} />
+                    <span>Escalated to Inbox (manual handling)</span>
+                  </div>
+                  <div className="event-detail retry-subject">
+                    <span>{event.subject}</span>
+                  </div>
+                  <div className="event-detail retry-duration">
+                    <Clock size={14} />
+                    <span>In folder for {event.duration}</span>
+                  </div>
+                </>
+              )}
+              {event.action === 'error' && (
+                <div className="error-message">
+                  {event.message}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>
@@ -292,9 +389,15 @@ function App() {
         >
           Errors
         </button>
+        <button 
+          className={activeTab === 'retry' ? 'active' : ''}
+          onClick={() => setActiveTab('retry')}
+        >
+          Retries
+        </button>
       </div>
 
-      {(activeTab === 'case_created' || activeTab === 'drs_update' || activeTab === 'duplicate_increment' || activeTab === 'error') && (
+      {(activeTab === 'case_created' || activeTab === 'drs_update' || activeTab === 'duplicate_increment' || activeTab === 'error' || activeTab === 'retry') && (
         <div className="date-picker-container">
           <Calendar size={20} className="calendar-icon" />
           <input 

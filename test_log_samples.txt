@@ -1,0 +1,602 @@
+========================================
+COMPREHENSIVE TEST LOG SAMPLES
+========================================
+
+NOTES:
+- Email verification folder configuration is stored in email_verification_config.json
+  If folder names or locations change, update that file instead of editing code.
+  See EMAIL_VERIFICATION_CONFIG_README.md for details.
+
+- SharePoint list uses two text columns: "Dateandtime" (date) and "Time" (time).
+
+- Email verification now:
+  * Waits 30 seconds and retries if email not found initially
+  * Checks "Create CRM Case", "Create CRM Case/Retry", and "Create CRM Case/Retry 2" on every attempt
+  * If still not found, tries +/-12h (AM/PM swap) and +/-24h (wrong date) offsets
+  * If found at an offset, auto-corrects SharePoint (Dateandtime/Time) and CRM (received-on)
+  * Updates SharePoint "EmailVerification" column (Yes/No) based on result
+  * Runs for both new cases AND increment cases (but not duplicates)
+
+# ===== SCENARIO 1: Normal New Case Creation =====
+2026-05-12 14:30:15,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 14:30:15,456 [INFO] Item 1234 status updated to 'Processing'.
+2026-05-12 14:30:15,457 [INFO] Processing store 21158...
+2026-05-12 14:30:15,458 [INFO]   Params: contact=John Smith, phone=(555) 123-4567, subject=Printer, case_type=Label printer
+2026-05-12 14:30:15,789 [INFO]   No duplicate found. Creating case...
+Found account: Smith, John (store 21158)
+Case created successfully. ID: abc123-def456-ghi789
+Case abc123-def456-ghi789 assigned to team successfully.
+2026-05-12 14:30:16,012 [INFO]   Note added to case.
+2026-05-12 14:30:16,345 [INFO]   [Email Verification] [OK] Found email in 'Emails From Franchisees' at 2026-05-12T19:25:00Z from johnsmith@example.com
+2026-05-12 14:30:16,678 [INFO] Item 1234 status updated to 'Processed'.
+2026-05-12 14:30:16,679 [INFO] Case created for store 21158: CAS-363400-A1B2C3 (ID: abc123-def456-ghi789)
+2026-05-12 14:30:16,680 [INFO]   Received On: 2026-05-12T19:25:00Z
+2026-05-12 14:30:16,681 [INFO]   Created On:  2026-05-12T19:30:15Z
+2026-05-12 14:30:16,682 [INFO]   Time Difference: 0:05:15 (Created - Received)
+
+
+# ===== SCENARIO 2: Increment - Same Subject Active Case =====
+2026-05-12 14:35:20,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 14:35:20,456 [INFO] Item 1235 status updated to 'Processing'.
+2026-05-12 14:35:20,457 [INFO] Processing store 20924...
+2026-05-12 14:35:20,458 [INFO]   Params: contact=Sarah Jones, phone=Store, subject=Software Issue, case_type=Third party
+2026-05-12 14:35:20,789 [INFO]   Increment (same-subject): CAS-363350-X7Y8Z9 (owner: Matthew Alemayehu). Skipping case creation.
+2026-05-12 14:35:21,012 [INFO]   Increment note added to CAS-363350-X7Y8Z9.
+2026-05-12 14:35:21,345 [INFO]   [Email Verification] [OK] Found email in 'Calls Entered' at 2026-05-12T19:32:00Z from no-reply@zoom.us
+2026-05-12 14:35:21,678 [INFO] Item 1235 status updated to 'Processed'.
+
+
+# ===== SCENARIO 3: Increment - Resolved Same Day Same Subject =====
+2026-05-12 14:40:25,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 14:40:25,456 [INFO] Item 1236 status updated to 'Processing'.
+2026-05-12 14:40:25,457 [INFO] Processing store 80229...
+2026-05-12 14:40:25,458 [INFO]   Params: contact=Dave Wells, phone=816-210-8246, subject=Internet/Network Issue, case_type=CCT/CDE
+2026-05-12 14:40:25,789 [INFO]   Increment (resolved-same-day-subject): CAS-363298-T4G0Y7 (owner: Support Center). Skipping case creation.
+2026-05-12 14:40:26,012 [INFO]   Increment note added to CAS-363298-T4G0Y7.
+2026-05-12 14:40:26,345 [INFO]   [Email Verification] [OK]œ“ Found email in 'Emails From FOMs' at 2026-05-12T19:38:00Z from dave@example.com
+2026-05-12 14:40:26,678 [INFO] Item 1236 status updated to 'Processed'.
+
+
+# ===== SCENARIO 4: Duplicate - Within 5 Minutes =====
+2026-05-12 14:45:30,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 14:45:30,456 [INFO] Item 1237 status updated to 'Processing'.
+2026-05-12 14:45:30,457 [INFO] Processing store 21297...
+2026-05-12 14:45:30,458 [INFO]   Params: contact=Adam Samit, phone=215-932-9006, subject=Appointment, case_type=New Store Setup
+2026-05-12 14:45:30,789 [INFO]   Time comparison: new=2026-05-12T19:43:00Z existing=2026-05-12T19:41:00Z diff=0:02:00
+2026-05-12 14:45:30,790 [INFO]   Exact duplicate (duplicate (within 5 min)): CAS-363362-W5K3V0 (owner: Support Center). Skipping case creation.
+2026-05-12 14:45:31,012 [INFO]   [Email Verification] [OK]œ“ Found email in 'Emails From Franchisees' at 2026-05-12T19:43:15Z from adam@example.com
+2026-05-12 14:45:31,345 [INFO] Item 1237 status updated to 'Processed'.
+
+
+# ===== SCENARIO 5: Future Date Warning (Still Creates Case) =====
+2026-05-12 14:50:35,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 14:50:35,456 [INFO] Item 1238 status updated to 'Processing'.
+2026-05-12 14:50:35,457 [INFO] Processing store 80967...
+2026-05-12 14:50:35,458 [INFO]   Params: contact=Sunday, phone=(647) 887-4926, subject=Software Issue, case_type=Third party
+2026-05-12 14:50:35,459 [WARNING]   [TIME WARNING] Received-on time '05/12/2026 8:17 PM' is in the future by 0:26:25. This is likely an AI extraction error. Creating case anyway.
+2026-05-12 14:50:35,789 [INFO]   No duplicate found. Creating case...
+Found account: Broderick, Gord & MacEwan, Elah (store 80967)
+Case created successfully. ID: xyz789-abc123-def456
+Case xyz789-abc123-def456 assigned to team successfully.
+2026-05-12 14:50:36,012 [INFO]   Note added to case.
+2026-05-12 14:50:36,345 [WARNING]   [Email Verification] [OK]œ— No email found in ['Emails From Franchisees', 'Emails From FOMs'] within +/-2 minutes of 2026-05-13T01:17:00Z
+2026-05-12 14:50:36,346 [WARNING]   [Email Verification] Expected sender: sunday@example.com
+2026-05-12 14:50:36,678 [INFO] Item 1238 status updated to 'Processed'.
+2026-05-12 14:50:36,679 [INFO] Case created for store 80967: CAS-363402-P9Q8R7 (ID: xyz789-abc123-def456)
+2026-05-12 14:50:36,680 [INFO]   Received On: 2026-05-13T01:17:00Z
+2026-05-12 14:50:36,681 [INFO]   Created On:  2026-05-12T19:50:35Z
+2026-05-12 14:50:36,682 [ERROR]   [91m[RED FLAG] Time Difference: -1 day, 5:33:35 (Created - Received) - NEGATIVE TIME DIFFERENCE![0m
+2026-05-12 14:50:36,683 [ERROR]   [91m[RED FLAG] Case was received AFTER it was created. This indicates a data error.[0m
+
+
+# ===== SCENARIO 6: Large Time Difference (8+ Hours) =====
+2026-05-12 14:55:40,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 14:55:40,456 [INFO] Item 1239 status updated to 'Processing'.
+2026-05-12 14:55:40,457 [INFO] Processing store 12345...
+2026-05-12 14:55:40,458 [INFO]   Params: contact=Jane Doe, phone=Store, subject=Checks, case_type=Preinventory
+2026-05-12 14:55:40,789 [INFO]   No duplicate found. Creating case...
+Found account: Doe, Jane (store 12345)
+Case created successfully. ID: qwe123-rty456-uio789
+Case qwe123-rty456-uio789 assigned to team successfully.
+2026-05-12 14:55:41,012 [INFO]   Note added to case.
+2026-05-12 14:55:41,345 [WARNING]   [Email Verification] [OK]œ— No email found in ['Splunk Alerts'] within +/-2 minutes of 2026-05-12T02:00:00Z
+2026-05-12 14:55:41,678 [INFO] Item 1239 status updated to 'Processed'.
+2026-05-12 14:55:41,679 [INFO] Case created for store 12345: CAS-363403-M4N5O6 (ID: qwe123-rty456-uio789)
+2026-05-12 14:55:41,680 [INFO]   Received On: 2026-05-12T02:00:00Z
+2026-05-12 14:55:41,681 [INFO]   Created On:  2026-05-12T19:55:40Z
+2026-05-12 14:55:41,682 [ERROR]   [91m[RED FLAG] Time Difference: 17:55:40 (Created - Received) - 17.9 HOURS![0m
+2026-05-12 14:55:41,683 [ERROR]   [91m[RED FLAG] Time difference exceeds 8 hours. This may indicate an AI extraction error.[0m
+
+
+# ===== SCENARIO 7: Draft Reply Moved (Immediate) =====
+2026-05-12 15:00:45,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 15:00:45,456 [INFO] Item 1240 status updated to 'Processing'.
+2026-05-12 15:00:45,457 [INFO] Processing store 21158...
+2026-05-12 15:00:45,458 [INFO]   Params: contact=Rex, phone=(605) 484-9521, subject=Software Issue, case_type=General DRS issue
+2026-05-12 15:00:45,789 [INFO]   No duplicate found. Creating case...
+Found account: Harms, Kannan (store 21158)
+Case created successfully. ID: aaa111-bbb222-ccc333
+Case aaa111-bbb222-ccc333 assigned to team successfully.
+2026-05-12 15:00:46,012 [INFO]   Note added to case.
+2026-05-12 15:00:46,345 [INFO]   Found draft: 'RE: Store 21158 Software Issue' -> moving to supportcenter@winmarkcorporation.com Drafts
+2026-05-12 15:00:46,678 [INFO]   Draft moved successfully (new ID: AAMkADJhYmFlYzdmLWVk...)
+2026-05-12 15:00:46,901 [INFO]   [Email Verification] [OK]œ“ Found email in 'Calls Entered' at 2026-05-12T19:58:00Z from no-reply@zoom.us
+2026-05-12 15:00:47,234 [INFO] Item 1240 status updated to 'Processed'.
+2026-05-12 15:00:47,235 [INFO] Case created for store 21158: CAS-363404-H5R6D5 (ID: aaa111-bbb222-ccc333)
+2026-05-12 15:00:47,236 [INFO]   Received On: 2026-05-12T19:58:00Z
+2026-05-12 15:00:47,237 [INFO]   Created On:  2026-05-12T20:00:45Z
+2026-05-12 15:00:47,238 [INFO]   Time Difference: 0:02:45 (Created - Received)
+
+
+# ===== SCENARIO 8: Draft Reply Not Found, Then Found After Retry =====
+2026-05-12 15:05:50,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 15:05:50,456 [INFO] Item 1241 status updated to 'Processing'.
+2026-05-12 15:05:50,457 [INFO] Processing store 20924...
+2026-05-12 15:05:50,458 [INFO]   Params: contact=Henna, phone=Store, subject=Printer, case_type=Label printer
+2026-05-12 15:05:50,789 [INFO]   No duplicate found. Creating case...
+Found account: Suy, Simon (store 20924)
+Case created successfully. ID: ddd444-eee555-fff666
+Case ddd444-eee555-fff666 assigned to team successfully.
+2026-05-12 15:05:51,012 [INFO]   Note added to case.
+2026-05-12 15:05:51,345 [INFO]   Draft not found on first check (searched 2 draft(s)). Waiting 10 seconds for draft to be created...
+2026-05-12 15:06:21,456 [INFO]   Retrying draft search for 'hennasboutique@gmail.com'...
+2026-05-12 15:06:21,789 [INFO]   Found draft: 'RE: OUAC20924 - Hard tag printer issues' -> moving to supportcenter@winmarkcorporation.com Drafts
+2026-05-12 15:06:52,012 [INFO]   Draft moved successfully (new ID: AAMkADJhYmFlYzdmLWVk...)
+2026-05-12 15:06:52,345 [INFO]   [Email Verification] [OK]œ“ Found email in 'Emails From Franchisees' at 2026-05-12T20:03:00Z from hennasboutique@gmail.com
+2026-05-12 15:06:52,678 [INFO] Item 1241 status updated to 'Processed'.
+2026-05-12 15:06:52,679 [INFO] Case created for store 20924: CAS-363405-G2M2C1 (ID: ddd444-eee555-fff666)
+2026-05-12 15:06:52,680 [INFO]   Received On: 2026-05-12T20:03:00Z
+2026-05-12 15:06:52,681 [INFO]   Created On:  2026-05-12T20:05:50Z
+2026-05-12 15:06:52,682 [INFO]   Time Difference: 0:02:50 (Created - Received)
+
+
+# ===== SCENARIO 9: Draft Reply Not Found After Retry =====
+2026-05-12 15:10:55,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 15:10:55,456 [INFO] Item 1242 status updated to 'Processing'.
+2026-05-12 15:10:55,457 [INFO] Processing store 80229...
+2026-05-12 15:10:55,458 [INFO]   Params: contact=Connie, phone=Store, subject=Printer, case_type=Label printer
+2026-05-12 15:10:55,789 [INFO]   No duplicate found. Creating case...
+Found account: Wells, David (store 80229)
+Case created successfully. ID: ggg777-hhh888-iii999
+Case ggg777-hhh888-iii999 assigned to team successfully.
+2026-05-12 15:10:56,012 [INFO]   Note added to case.
+2026-05-12 15:10:56,345 [INFO]   Draft not found on first check (searched 3 draft(s)). Waiting 10 seconds for draft to be created...
+2026-05-12 15:11:26,456 [INFO]   Retrying draft search for 'daveandconniewells@yahoo.com'...
+2026-05-12 15:11:26,789 [WARNING]   No draft found in nnyamekye@winmarkcorporation.com addressed to 'daveandconniewells@yahoo.com' after retry. Searched 3 draft(s).
+2026-05-12 15:11:57,012 [INFO]   [Email Verification] [OK]œ“ Found email in 'Emails From FOMs' at 2026-05-12T20:08:00Z from daveandconniewells@yahoo.com
+2026-05-12 15:11:57,345 [INFO] Item 1242 status updated to 'Processed'.
+2026-05-12 15:11:57,346 [INFO] Case created for store 80229: CAS-363406-R0M5H8 (ID: ggg777-hhh888-iii999)
+2026-05-12 15:11:57,347 [INFO]   Received On: 2026-05-12T20:08:00Z
+2026-05-12 15:11:57,348 [INFO]   Created On:  2026-05-12T20:10:55Z
+2026-05-12 15:11:57,349 [INFO]   Time Difference: 0:02:55 (Created - Received)
+
+
+# ===== SCENARIO 10: Validation Error - Failed Item (Bad Subject) =====
+2026-05-12 15:15:00,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 15:15:00,456 [INFO] Item 1243 status updated to 'Processing'.
+2026-05-12 15:15:00,457 [INFO] Processing store 99999...
+2026-05-12 15:15:00,458 [INFO]   Params: contact=Test User, phone=555-1234, subject=Invalid Subject, case_type=Unknown Type
+2026-05-12 15:15:00,789 [ERROR] Validation error for item 1243 (store 99999): Invalid subject 'Invalid Subject': Subject 'Invalid Subject' not found in CRM
+2026-05-12 15:15:01,012 [INFO]   Item 1243 marked as Failed: Invalid subject 'Invalid Subject': Subject 'Invalid Subject' not found in CRM
+
+
+# ===== SCENARIO 10b: Invalid Store Number - Store Does Not Exist in CRM =====
+# Store number entered by AI does not exist at all in CRM.
+# Email is moved back to Inbox and marked unread for manual handling.
+2026-05-19 19:47:00,364 [INFO] Found 1 approved item(s) to process.
+2026-05-19 19:47:00,994 [INFO] Item 1903 status updated to 'Processing'.
+2026-05-19 19:47:00,998 [INFO] Processing store 10804...
+2026-05-19 19:47:00,999 [INFO]   Params: contact=Staff, phone=(417) 883-7444, subject=Locked Buy, case_type=Active
+2026-05-19 19:47:02,934 [INFO]   [Email Verification] [OK] Found email in 'Create CRM Case' at 2026-05-20T00:43:30Z from no-reply@zoom.us
+2026-05-19 19:47:04,016 [INFO]   No duplicate found. Creating case...
+2026-05-19 19:47:04,030 [ERROR] Invalid store number for item 1903 (store 10804): No account found for store number '10804'.
+2026-05-19 19:47:04,538 [WARNING] Failed to update with error message, retrying without it...
+2026-05-19 19:47:05,110 [INFO] Item 1903 status updated to 'Invalid Store Number' (without error message).
+2026-05-19 19:47:05,112 [INFO]   Item 1903 marked as Invalid Store Number: No account found for store number '10804'.
+2026-05-19 19:47:05,112 [INFO]   [Email] Moving verified email back to Inbox and marking unread...
+2026-05-19 19:47:05,667 [INFO]   [Email] Moved email to Inbox.
+2026-05-19 19:47:06,191 [INFO]   [Email] Marked email as unread.
+
+
+# ===== SCENARIO 10c: Invalid Store Number - Store Exists But Is Inactive/Closed =====
+# Store number exists in CRM but account is inactive (closed store).
+# Treated identically to a missing store — email moved to Inbox, item flagged.
+2026-05-19 19:57:03,462 [INFO] Found 1 approved item(s) to process.
+2026-05-19 19:57:04,011 [INFO] Item 1904 status updated to 'Processing'.
+2026-05-19 19:57:04,017 [INFO] Processing store 10408...
+2026-05-19 19:57:04,017 [INFO]   Params: contact=Staff, phone=(417) 883-7444, subject=Locked Buy, case_type=Active
+2026-05-19 19:57:04,867 [INFO]   [Email Verification] [OK] Found email in 'Calls Entered' at 2026-05-20T00:43:30Z from no-reply@zoom.us
+2026-05-19 19:57:06,039 [INFO]   No duplicate found. Creating case...
+2026-05-19 19:57:06,050 [ERROR] Invalid store number for item 1904 (store 10408): Account for store number '10408' is inactive/closed.
+2026-05-19 19:57:06,538 [WARNING] Failed to update with error message, retrying without it...
+2026-05-19 19:57:07,110 [INFO] Item 1904 status updated to 'Invalid Store Number' (without error message).
+2026-05-19 19:57:07,112 [INFO]   Item 1904 marked as Invalid Store Number: Account for store number '10408' is inactive/closed.
+2026-05-19 19:57:07,112 [INFO]   [Email] Moving verified email back to Inbox and marking unread...
+2026-05-19 19:57:07,667 [INFO]   [Email] Moved email to Inbox.
+2026-05-19 19:57:08,191 [INFO]   [Email] Marked email as unread.
+
+
+# ===== SCENARIO 11: Multiple Items in One Poll =====
+2026-05-12 15:20:05,123 [INFO] Found 3 approved item(s) to process.
+2026-05-12 15:20:05,456 [INFO] Item 1244 status updated to 'Processing'.
+2026-05-12 15:20:05,457 [INFO] Processing store 11111...
+2026-05-12 15:20:05,458 [INFO]   Params: contact=Alice, phone=Store, subject=Appointment, case_type=New Store Setup
+2026-05-12 15:20:05,789 [INFO]   No duplicate found. Creating case...
+Found account: Alice, Test (store 11111)
+Case created successfully. ID: jjj000-kkk111-lll222
+Case jjj000-kkk111-lll222 assigned to team successfully.
+2026-05-12 15:20:06,012 [INFO]   Note added to case.
+2026-05-12 15:20:06,345 [INFO]   [Email Verification] [OK]œ“ Found email in 'Internal Requests' at 2026-05-12T20:18:00Z from alice@winmarkcorporation.com
+2026-05-12 15:20:06,678 [INFO] Item 1244 status updated to 'Processed'.
+2026-05-12 15:20:06,679 [INFO] Case created for store 11111: CAS-363407-A1A1A1 (ID: jjj000-kkk111-lll222)
+2026-05-12 15:20:06,680 [INFO]   Received On: 2026-05-12T20:18:00Z
+2026-05-12 15:20:06,681 [INFO]   Created On:  2026-05-12T20:20:05Z
+2026-05-12 15:20:06,682 [INFO]   Time Difference: 0:02:05 (Created - Received)
+2026-05-12 15:20:07,123 [INFO] Item 1245 status updated to 'Processing'.
+2026-05-12 15:20:07,124 [INFO] Processing store 22222...
+2026-05-12 15:20:07,125 [INFO]   Params: contact=Bob, phone=555-9999, subject=Printer, case_type=Label printer
+2026-05-12 15:20:07,456 [INFO]   Increment (same-subject): CAS-363300-B2B2B2 (owner: Support Center). Skipping case creation.
+2026-05-12 15:20:07,789 [INFO]   Increment note added to CAS-363300-B2B2B2.
+2026-05-12 15:20:08,012 [INFO]   [Email Verification] [OK]œ“ Found email in 'Emails From Franchisees' at 2026-05-12T20:16:00Z from bob@example.com
+2026-05-12 15:20:08,345 [INFO] Item 1245 status updated to 'Processed'.
+2026-05-12 15:20:08,678 [INFO] Item 1246 status updated to 'Processing'.
+2026-05-12 15:20:08,679 [INFO] Processing store 33333...
+2026-05-12 15:20:08,680 [INFO]   Params: contact=Charlie, phone=Store, subject=Software Issue, case_type=Third party
+2026-05-12 15:20:08,789 [INFO]   Time comparison: new=2026-05-12T20:17:00Z existing=2026-05-12T20:15:00Z diff=0:02:00
+2026-05-12 15:20:08,790 [INFO]   Exact duplicate (duplicate (within 5 min)): CAS-363301-C3C3C3 (owner: Matthew Alemayehu). Skipping case creation.
+2026-05-12 15:20:09,012 [INFO]   [Email Verification] [OK]œ“ Found email in 'Calls Entered' at 2026-05-12T20:17:30Z from no-reply@zoom.us
+2026-05-12 15:20:09,345 [INFO] Item 1246 status updated to 'Processed'.
+2026-05-12 15:20:09,678 [INFO] Done. Processed 3 item(s).
+
+
+# ===== SCENARIO 12: Internal Request - Email Not Found =====
+2026-05-12 15:20:15,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 15:20:15,456 [INFO] Item 1247 status updated to 'Processing'.
+2026-05-12 15:20:15,457 [INFO] Processing store 44444...
+2026-05-12 15:20:15,458 [INFO]   Params: contact=David, phone=555-7777, subject=Checks, case_type=Preinventory
+2026-05-12 15:20:15,789 [INFO]   No duplicate found. Creating case...
+Found account: David, Internal (store 44444)
+Case created successfully. ID: mmm333-nnn444-ooo555
+Case mmm333-nnn444-ooo555 assigned to team successfully.
+2026-05-12 15:20:16,012 [INFO]   Note added to case.
+2026-05-12 15:20:16,345 [WARNING]   [Email Verification] [OK]œ— No email found in ['Internal Requests'] within +/-2 minutes of 2026-05-12T20:12:00Z
+2026-05-12 15:20:16,346 [WARNING]   [Email Verification] Expected sender: david@winmarkcorporation.com
+2026-05-12 15:20:16,678 [INFO] Item 1247 status updated to 'Processed'.
+2026-05-12 15:20:16,679 [INFO] Case created for store 44444: CAS-363408-D4D4D4 (ID: mmm333-nnn444-ooo555)
+2026-05-12 15:20:16,680 [INFO]   Received On: 2026-05-12T20:12:00Z
+2026-05-12 15:20:16,681 [INFO]   Created On:  2026-05-12T20:20:15Z
+2026-05-12 15:20:16,682 [INFO]   Time Difference: 0:08:15 (Created - Received)
+
+
+# ===== SCENARIO 13: Email Verification - Not Found, Then Found After Retry =====
+2026-05-12 15:25:20,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 15:25:20,456 [INFO] Item 1248 status updated to 'Processing'.
+2026-05-12 15:25:20,457 [INFO] Processing store 55555...
+2026-05-12 15:25:20,458 [INFO]   Params: contact=Emily, phone=555-8888, subject=Internet/Network Issue, case_type=CCT/CDE
+2026-05-12 15:25:20,789 [INFO]   No duplicate found. Creating case...
+Found account: Emily, Test (store 55555)
+Case created successfully. ID: ppp666-qqq777-rrr888
+Case ppp666-qqq777-rrr888 assigned to team successfully.
+2026-05-12 15:25:21,012 [INFO]   Note added to case.
+2026-05-12 15:25:21,345 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
+2026-05-12 15:25:51,456 [INFO]   [Email Verification] Retrying email search in ['Emails From Franchisees', 'Emails From FOMs', 'Create CRM Case']...
+2026-05-12 15:25:51,789 [INFO]   [Email Verification] [OK]œ“ Found email in 'Emails From Franchisees' at 2026-05-12T20:23:00Z from emily@example.com
+2026-05-12 15:25:52,012 [INFO] Item 1248 status updated to 'Processed'.
+2026-05-12 15:25:52,013 [INFO] Case created for store 55555: CAS-363409-E5E5E5 (ID: ppp666-qqq777-rrr888)
+2026-05-12 15:25:52,014 [INFO]   Received On: 2026-05-12T20:23:00Z
+2026-05-12 15:25:52,015 [INFO]   Created On:  2026-05-12T20:25:20Z
+2026-05-12 15:25:52,016 [INFO]   Time Difference: 0:02:20 (Created - Received)
+
+
+# ===== SCENARIO 14: Email Verification - Not Found After Retry =====
+2026-05-12 15:26:00,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 15:26:00,456 [INFO] Item 1249 status updated to 'Processing'.
+2026-05-12 15:26:00,457 [INFO] Processing store 66666...
+2026-05-12 15:26:00,458 [INFO]   Params: contact=Frank, phone=Store, subject=Printer, case_type=Label printer
+2026-05-12 15:26:00,789 [INFO]   No duplicate found. Creating case...
+Found account: Frank, Test (store 66666)
+Case created successfully. ID: sss999-ttt000-uuu111
+Case sss999-ttt000-uuu111 assigned to team successfully.
+2026-05-12 15:26:01,012 [INFO]   Note added to case.
+2026-05-12 15:26:01,345 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
+2026-05-12 15:26:31,456 [INFO]   [Email Verification] Retrying email search in ['Calls Entered', 'Create CRM Case']...
+2026-05-12 15:26:31,789 [WARNING]   [Email Verification] [NOT FOUND] No email found in ['Calls Entered', 'Create CRM Case'] within +/-2 minutes of 2026-05-12T20:24:00Z after retry
+2026-05-12 15:26:32,012 [INFO] Item 1249 status updated to 'Processed'.
+2026-05-12 15:26:32,013 [INFO] Case created for store 66666: CAS-363410-F6F6F6 (ID: sss999-ttt000-uuu111)
+2026-05-12 15:26:32,014 [INFO]   Received On: 2026-05-12T20:24:00Z
+2026-05-12 15:26:32,015 [INFO]   Created On:  2026-05-12T20:26:00Z
+2026-05-12 15:26:32,016 [INFO]   Time Difference: 0:02:00 (Created - Received)
+
+
+# ===== SCENARIO 15: Store 80842 - Voice to Text with Email Verification =====
+2026-05-12 17:02:30,447 [INFO] Found 1 approved item(s) to process.
+2026-05-12 17:02:30,448 [INFO] Item 1236 status updated to 'Processing'.
+2026-05-12 17:02:30,448 [INFO] Processing store 80842...
+2026-05-12 17:02:30,448 [INFO]   Params: contact=LaVeya, phone=210-721-8897, subject=DRS Access Issue, case_type=Unable to open DRS
+2026-05-12 17:02:30,492 [INFO]   No duplicate found. Creating case...
+Found account: Leja, Nicholas (store 80842)
+Case created successfully. ID: 7efbbf42-4e4e-f111-a60e-005056ad6d42
+Case 7efbbf42-4e4e-f111-a60e-005056ad6d42 assigned to team successfully.
+2026-05-12 17:02:30,721 [INFO]   Note added to case.
+2026-05-12 17:02:31,012 [INFO]   [Email Verification] [OK] Found email in 'Calls Entered' at 2026-05-12T21:22:01Z from no-reply@zoom.us
+2026-05-12 17:02:31,318 [INFO] Item 1236 status updated to 'Processed'.
+2026-05-12 17:02:31,319 [INFO] Case created for store 80842: CAS-363380-Z2S1P7 (ID: 7efbbf42-4e4e-f111-a60e-005056ad6d42)
+2026-05-12 17:02:31,319 [INFO]   Received On: 2026-05-12T21:22:00Z
+2026-05-12 17:02:31,319 [INFO]   Created On:  2026-05-12T22:02:30Z
+2026-05-12 17:02:31,319 [INFO]   Time Difference: 0:40:30 (Created - Received)
+
+
+# ===== SCENARIO 16: Store 21039 - Voice to Text with New Date/Time Column =====
+2026-05-12 19:23:45,609 [INFO] Found 1 approved item(s) to process.
+2026-05-12 19:23:46,248 [INFO] Item 1248 status updated to 'Processing'.
+2026-05-12 19:23:46,250 [INFO] Processing store 21039...
+2026-05-12 19:23:46,250 [INFO]   Params: contact=Navneet, phone=863-875-2085, subject=Dayclose Issue, case_type=Dayclose Failure
+2026-05-12 19:23:46,616 [INFO]   No duplicate found. Creating case...
+Found account: Patel, Navneet (store 21039)
+Case created successfully. ID: f5ae0d01-624e-f111-a60e-005056ad6d42
+Case f5ae0d01-624e-f111-a60e-005056ad6d42 assigned to team successfully.
+2026-05-12 19:23:46,943 [INFO]   Note added to case.
+2026-05-12 19:23:47,123 [INFO]   [Email Verification] [OK] Found email in 'Calls Entered' at 2026-05-12T19:15:52Z from no-reply@zoom.us
+2026-05-12 19:23:47,596 [INFO] Item 1248 status updated to 'Processed'.
+2026-05-12 19:23:47,601 [INFO] Case created for store 21039: CAS-363387-L1T0X1 (ID: f5ae0d01-624e-f111-a60e-005056ad6d42)
+2026-05-12 19:23:47,602 [INFO]   Received On: 2026-05-12T19:15:03Z
+2026-05-12 19:23:47,602 [INFO]   Created On:  2026-05-13T00:23:46Z
+2026-05-12 19:23:47,602 [INFO]   Time Difference: 5:08:43 (Created - Received)
+
+
+# ===== SCENARIO 17: Store 21088 - Email with Sender Verification =====
+2026-05-12 17:02:34,004 [INFO] Found 1 approved item(s) to process.
+2026-05-12 17:02:34,005 [INFO] Item 1238 status updated to 'Processing'.
+2026-05-12 17:02:34,005 [INFO] Processing store 21088...
+2026-05-12 17:02:34,005 [INFO]   Params: contact=Chantelle, phone=775-825-4448, subject=Hardware Issue, case_type=Pole display
+2026-05-12 17:02:34,053 [INFO]   No duplicate found. Creating case...
+Found account: Clawson, Chantelle (store 21088)
+Case created successfully. ID: 85fbbf42-4e4e-f111-a60e-005056ad6d42
+Case 85fbbf42-4e4e-f111-a60e-005056ad6d42 assigned to team successfully.
+2026-05-12 17:02:34,409 [INFO]   Note added to case.
+2026-05-12 17:02:34,832 [INFO]   Found draft: 'Re: OUAC 21088 new pole display reg 4 needs installation.' -> moving to supportcenter@winmarkcorporation.com Drafts
+2026-05-12 17:02:36,640 [INFO]   Draft moved successfully (new ID: AAMkADJhYmFlYzdmLWVk...)
+2026-05-12 17:02:37,123 [INFO]   [Email Verification] [OK] Found email in 'Emails From Franchisees' at 2026-05-12T21:34:06Z from chantelleclawson@gmail.com
+2026-05-12 17:02:37,392 [INFO] Item 1238 status updated to 'Processed'.
+2026-05-12 17:02:37,393 [INFO] Case created for store 21088: CAS-363381-P8T5L3 (ID: 85fbbf42-4e4e-f111-a60e-005056ad6d42)
+2026-05-12 17:02:37,393 [INFO]   Received On: 2026-05-12T21:34:00Z
+2026-05-12 17:02:37,393 [INFO]   Created On:  2026-05-12T22:02:34Z
+2026-05-12 17:02:37,393 [INFO]   Time Difference: 0:28:34 (Created - Received)
+
+
+# ===== SCENARIO 18: Store 11008 - Wrong Date, Time-Corrected (-24h) =====
+# AI entered 5/14 instead of 5/13. Email verification runs BEFORE case creation,
+# finds the email 24 hours earlier, corrects the time, then creates the case with the right time.
+2026-05-13 19:35:59,709 [INFO] Found 1 approved item(s) to process.
+2026-05-13 19:36:00,279 [INFO] Item 1353 status updated to 'Processing'.
+2026-05-13 19:36:00,284 [INFO] Processing store 11008...
+2026-05-13 19:36:00,284 [INFO]   Params: contact=Bob, phone=815-459-1717, subject=Dayclose Issue, case_type=File in-use error
+2026-05-13 19:36:00,292 [WARNING]   [TIME WARNING] Received-on time '05/14/2026 07:31 PM' is in the future by 23:54:59. This is likely an AI extraction error.
+2026-05-13 19:36:02,613 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
+2026-05-13 19:36:12,615 [INFO]   [Email Verification] Retrying email search in ['Calls Entered', 'Create CRM Case']...
+2026-05-13 19:36:13,500 [INFO]   [Email Verification] Trying time-corrected search (+/-12h, +/-24h)...
+2026-05-13 19:36:14,321 [INFO]   [Email Verification] [OK] Found email with -24h (wrong date) correction in 'Calls Entered' at 2026-05-13T19:31:15Z from no-reply@zoom.us
+2026-05-13 19:36:14,322 [INFO]   [Email Verification] Correcting received time from 2026-05-15T00:31:00Z to 2026-05-14T00:31:00Z
+2026-05-13 19:36:14,700 [INFO]   [Time Correction] Corrected received_on to 05/13/2026 7:31 pm (UTC: 2026-05-14T00:31:00Z)
+2026-05-13 19:36:15,100 [INFO]   [Time Correction] Updated SharePoint: Dateandtime=05/13/2026, Time=7:31 pm
+2026-05-13 19:36:15,200 [INFO]   No duplicate found. Creating case...
+Found account: Smith, Bob (store 11008)
+Case created successfully. ID: 2b3402e1-2c4f-f111-a60e-005056ad6d42
+Case 2b3402e1-2c4f-f111-a60e-005056ad6d42 assigned to team successfully.
+2026-05-13 19:36:15,500 [INFO]   Note added to case.
+2026-05-13 19:36:16,000 [INFO] Item 1353 status updated to 'Processed'.
+2026-05-13 19:36:16,001 [INFO] Case created for store 11008: CAS-363494-H4V9Q2 (ID: 2b3402e1-2c4f-f111-a60e-005056ad6d42)
+2026-05-13 19:36:16,002 [INFO]   Received On: 2026-05-14T00:31:00Z
+2026-05-13 19:36:16,003 [INFO]   Created On:  2026-05-14T00:36:00Z
+2026-05-13 19:36:16,004 [INFO]   Time Difference: 0:05:00 (Created - Received)
+
+
+# ===== SCENARIO 19: AM/PM Swap - Time-Corrected (+12h) =====
+# AI entered 7:31 AM instead of 7:31 PM. Email verification runs BEFORE case creation,
+# finds email 12 hours later, corrects the time, then creates the case with the right time.
+2026-05-13 19:40:00,100 [INFO] Found 1 approved item(s) to process.
+2026-05-13 19:40:00,500 [INFO] Item 1360 status updated to 'Processing'.
+2026-05-13 19:40:00,502 [INFO] Processing store 55555...
+2026-05-13 19:40:00,502 [INFO]   Params: contact=Jane, phone=555-1234, subject=Software Issue, case_type=Third party
+2026-05-13 19:40:02,000 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
+2026-05-13 19:40:12,001 [INFO]   [Email Verification] Retrying email search in ['Emails From Franchisees', 'Emails From FOMs', 'Create CRM Case']...
+2026-05-13 19:40:13,000 [INFO]   [Email Verification] Trying time-corrected search (+/-12h, +/-24h)...
+2026-05-13 19:40:13,500 [INFO]   [Email Verification] [OK] Found email with +12h (AM/PM swap) correction in 'Emails From Franchisees' at 2026-05-14T00:40:30Z from jane@example.com
+2026-05-13 19:40:13,501 [INFO]   [Email Verification] Correcting received time from 2026-05-13T12:40:00Z to 2026-05-14T00:40:00Z
+2026-05-13 19:40:13,700 [INFO]   [Time Correction] Corrected received_on to 05/13/2026 7:40 pm (UTC: 2026-05-14T00:40:00Z)
+2026-05-13 19:40:13,900 [INFO]   [Time Correction] Updated SharePoint: Dateandtime=05/13/2026, Time=7:40 pm
+2026-05-13 19:40:14,100 [INFO]   No duplicate found. Creating case...
+Found account: Doe, Jane (store 55555)
+Case created successfully. ID: aaa111-bbb222-ccc333
+Case aaa111-bbb222-ccc333 assigned to team successfully.
+2026-05-13 19:40:14,300 [INFO]   Note added to case.
+2026-05-13 19:40:14,700 [INFO] Item 1360 status updated to 'Processed'.
+2026-05-13 19:40:14,701 [INFO] Case created for store 55555: CAS-363500-X1Y2Z3 (ID: aaa111-bbb222-ccc333)
+2026-05-13 19:40:14,702 [INFO]   Received On: 2026-05-14T00:40:00Z
+2026-05-13 19:40:14,703 [INFO]   Created On:  2026-05-14T00:40:14Z
+2026-05-13 19:40:14,704 [INFO]   Time Difference: 0:00:14 (Created - Received)
+
+
+# ===== SCENARIO 20: No Approved Items =====
+2026-05-12 15:30:10,123 [INFO] No approved items to process.
+
+
+========================================
+KEY PATTERNS TO LOOK FOR:
+========================================
+
+1. NEW CASE CREATED:
+   - "Case created for store {store}: {ticket_number}"
+   - Followed by "Received On:", "Created On:", "Time Difference:"
+
+2. INCREMENT (SAME-SUBJECT):
+   - "Increment (same-subject): {ticket_number}"
+   - "Increment note added to {ticket_number}"
+
+3. INCREMENT (RESOLVED-SAME-DAY-SUBJECT):
+   - "Increment (resolved-same-day-subject): {ticket_number}"
+   - "Increment note added to {ticket_number}"
+
+4. DUPLICATE (WITHIN 5 MIN):
+   - "Exact duplicate (duplicate (within 5 min)): {ticket_number}"
+   - "Time comparison: new={time} existing={time} diff={diff}"
+
+5. TIME WARNINGS:
+   - "[TIME WARNING] Received-on time" - Future date
+   - "[RED FLAG] Time Difference" - Negative or 8+ hours
+
+6. EMAIL VERIFICATION:
+   - "[OK] Found email in '{folder}' at {time} from {email}" - Success (immediate)
+   - "[OK] Found email in 'Create CRM Case/Retry' at {time} from {email}" - Found in Retry subfolder
+   - "[OK] Found email in 'Create CRM Case/Retry 2' at {time} from {email}" - Found in Retry 2 subfolder
+   - "Email not found on first check. Waiting 10 seconds" - Retry initiated
+   - "Retrying email search in {folders}" - Second attempt (same folders, incl. Create CRM Case)
+   - "[NOT FOUND] No email found in..." - Not found after retry
+   - "Expected sender: {email}" - Shows expected email for Email/Internal origins
+   - Note: 'Create CRM Case', 'Create CRM Case/Retry', and 'Create CRM Case/Retry 2' are always searched on BOTH attempts
+   - Note: Retry/Retry 2 subfolders are used by folder_monitor.py to stage emails awaiting Copilot retry
+
+7. TIME-CORRECTED EMAIL VERIFICATION (runs BEFORE case creation):
+   - "Trying time-corrected search (+/-12h, +/-24h)..." - Offset search initiated
+   - "[OK] Found email with {offset} correction in '{folder}'" - Found at offset
+   - "Correcting received time from {old} to {new}" - Time correction applied
+   - "[Time Correction] Corrected received_on to {local} (UTC: {iso})" - received_on fixed
+   - "[Time Correction] Updated SharePoint: Dateandtime={date}, Time={time}" - SharePoint updated
+   - Case is then created with the corrected time (no post-creation CRM update needed)
+
+8. DRAFT REPLY:
+   - "Found draft:" - Immediate find
+   - "Draft not found on first check" + "Retrying" - Retry logic
+   - "No draft found...after retry" - Failed to find
+
+9. VALIDATION ERRORS (bad subject / case type):
+   - "Validation error for item {id} (store {store}): {reason}"
+   - "Item {id} marked as Failed: {reason}"
+
+9b. INVALID STORE NUMBER (store not in CRM):
+   - "Invalid store number for item {id} (store {store}): No account found for store number '{store}'."
+   - "Item {id} marked as Invalid Store Number: No account found for store number '{store}'."
+   - "[Email] Moving verified email back to Inbox and marking unread..."
+   - "[Email] Moved email to Inbox."
+   - "[Email] Marked email as unread."
+
+9c. INVALID STORE NUMBER (store inactive/closed in CRM):
+   - "Invalid store number for item {id} (store {store}): Account for store number '{store}' is inactive/closed."
+   - "Item {id} marked as Invalid Store Number: Account for store number '{store}' is inactive/closed."
+   - Same email-to-Inbox flow as 9b above.
+   - NOTE: The key distinction is the error message suffix:
+       * Never existed  -> "No account found for store number '{store}'."
+       * Inactive/closed -> "Account for store number '{store}' is inactive/closed."
+
+10. STATUS UPDATES:
+    - "Item {id} status updated to 'Processing'"
+    - "Item {id} status updated to 'Processed'"
+
+11. SUMMARY:
+    - "Done. Processed {count} item(s)."
+    - "No approved items to process."
+
+
+========================================
+FOLDER MONITOR LOG SAMPLES (folder_monitor.log)
+========================================
+
+NOTES:
+- Separate script: crm_case_folder_monitor.py  (run via start_folder_monitor.bat)
+- Watches: supportcenter@winmarkcorporation.com / Inbox / Create CRM Case
+- Timers based on first-seen by monitor, NOT receivedDateTime
+- Stage 1: email in 'Create CRM Case' >= 10 min      -> move to 'Retry' subfolder, mark READ
+- Stage 2: email in 'Create CRM Case/Retry' >= 10 min -> move to 'Retry 2' subfolder
+- Stage 3: email in 'Create CRM Case/Retry 2' >= 7 min -> move to main Inbox
+- Polls every 30 seconds; output also goes to folder_monitor_output.log
+
+
+# ===== FM SCENARIO 1: Monitor Startup =====
+2026-05-18 14:59:14,939 [INFO] ============================================================
+2026-05-18 14:59:14,939 [INFO] CRM Case Folder Monitor starting
+2026-05-18 14:59:14,940 [INFO] Watching : supportcenter@winmarkcorporation.com / Inbox / Create CRM Case
+2026-05-18 14:59:14,940 [INFO] Stage 1  : >=10 min in 'Create CRM Case' -> move to 'Retry' subfolder, mark read
+2026-05-18 14:59:14,940 [INFO] Stage 2  : >=10 min in 'Retry' -> move to 'Retry 2' subfolder
+2026-05-18 14:59:14,941 [INFO] Stage 3  : >=7 min in 'Retry 2' -> move to Inbox
+2026-05-18 14:59:14,970 [INFO] Interval : 30s
+2026-05-18 14:59:14,970 [INFO] ============================================================
+2026-05-18 14:59:15,553 [INFO] Graph API token acquired/refreshed.
+
+
+# ===== FM SCENARIO 2: Normal Poll - No Stale Emails =====
+# Email has been in 'Create CRM Case' for less than 10 min; nothing to do.
+# (No output logged during quiet cycles - monitor silently records first-seen and moves on)
+
+
+# ===== FM SCENARIO 3: Stage 1 - Stale Email Moved to Retry (mark read) =====
+# Email has been in 'Create CRM Case' for >= 10 min without Copilot processing it.
+2026-05-18 14:42:35,617 [INFO]   Moving to 'Create CRM Case/Retry': 'Re: fix input entry' (in folder for 0:10:01)
+2026-05-18 14:42:41,828 [INFO]   Moved successfully.
+# After this: timer resets. Email will be watched in 'Retry' folder now.
+
+
+# ===== FM SCENARIO 4: Stage 2 - Email in Retry Too Long, Moved to Retry 2 =====
+# Email has been in 'Create CRM Case/Retry' for >= 10 min; Copilot still hasn't picked it up.
+# Moved to 'Create CRM Case/Retry 2' for a second retry opportunity.
+2026-05-18 14:42:46,889 [INFO]   Moving to 'Create CRM Case/Retry 2': 'Re: fix input entry' (in folder for 0:10:01)
+2026-05-18 14:42:52,444 [INFO]   Moved successfully.
+
+
+# ===== FM SCENARIO 4b: Stage 3 - Email in Retry 2 Too Long, Moved to Inbox =====
+# Email has been in 'Create CRM Case/Retry 2' for >= 7 min; Copilot still hasn't picked it up.
+# Moved to main Inbox for manual handling.
+2026-05-18 14:53:00,123 [INFO]   Moving to Inbox: 'Re: fix input entry' (in folder for 0:07:05)
+2026-05-18 14:53:06,456 [INFO]   Moved successfully.
+
+
+# ===== FM SCENARIO 5: Both Stages in Same Cycle =====
+# One email ready for Stage 1, another already in Retry ready for Stage 2.
+2026-05-18 15:10:00,123 [INFO] Graph API token acquired/refreshed.
+2026-05-18 15:10:01,456 [INFO]   Moving to 'Create CRM Case/Retry': 'Platos Closet 80714 - POS issue' (in folder for 0:10:03)
+2026-05-18 15:10:07,789 [INFO]   Moved successfully.
+2026-05-18 15:10:08,012 [INFO]   Moving to 'Create CRM Case/Retry 2': 'Re: Store 21039 DRS Access Issue' (in folder for 0:12:45)
+2026-05-18 15:10:14,234 [INFO]   Moved successfully.
+2026-05-18 15:10:14,235 [INFO] Bounced 2 email(s) this cycle.
+
+
+# ===== FM SCENARIO 6: Folder Not Found Error =====
+# If 'Create CRM Case' or 'Retry' subfolder is missing/renamed.
+2026-05-18 15:15:00,123 [INFO] Graph API token acquired/refreshed.
+2026-05-18 15:15:01,456 [ERROR] Subfolder 'Retry' not found under 'Create CRM Case'.
+
+
+# ===== FM SCENARIO 7: Move Failure (Transient API Error) =====
+2026-05-18 15:20:00,123 [INFO] Graph API token acquired/refreshed.
+2026-05-18 15:20:01,456 [INFO]   Moving to 'Create CRM Case/Retry': 'Store 21158 Hardware Issue' (in folder for 0:11:30)
+2026-05-18 15:20:02,789 [ERROR]   Failed to move 'Store 21158 Hardware Issue': 503 Server Error: Service Unavailable
+
+
+========================================
+FOLDER MONITOR KEY PATTERNS:
+========================================
+
+1. STARTUP:
+   - "CRM Case Folder Monitor starting"
+   - "Watching : {mailbox} / Inbox / Create CRM Case"
+   - "Stage 1  : >={N} min in 'Create CRM Case' -> move to 'Retry' subfolder, mark read"
+   - "Stage 2  : >={N} min in 'Retry' -> move to 'Retry 2' subfolder"
+   - "Stage 3  : >={N} min in 'Retry 2' -> move to Inbox"
+
+2. STAGE 1 - MOVED TO RETRY:
+   - "Moving to 'Create CRM Case/Retry': '{subject}' (in folder for {duration})"
+   - "Moved successfully."
+
+3. STAGE 2 - MOVED TO RETRY 2:
+   - "Moving to 'Create CRM Case/Retry 2': '{subject}' (in folder for {duration})"
+   - "Moved successfully."
+
+4. STAGE 3 - MOVED TO INBOX:
+   - "Moving to Inbox: '{subject}' (in folder for {duration})"
+   - "Moved successfully."
+
+5. CYCLE SUMMARY (only logged when emails were moved):
+   - "Bounced {count} email(s) this cycle."
+
+6. ERRORS:
+   - "Subfolder '{name}' not found under '{parent}'" - Folder missing/renamed
+   - "Failed to move '{subject}': {error}" - API error during move

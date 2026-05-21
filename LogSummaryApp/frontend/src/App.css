@@ -280,6 +280,62 @@
   color: #f56565;
 }
 
+.event-card.retry {
+  border-left: 4px solid #ed8936;
+}
+
+.event-icon.retry {
+  color: #ed8936;
+}
+
+.event-detail.retry-action {
+  font-size: 0.9rem;
+  font-weight: 600;
+  padding: 4px 8px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.event-detail.retry-action.retry-stage1 {
+  color: #f6ad55;
+  background: #2d1f0e;
+  border: 1px solid #7a4a1a;
+}
+
+.event-detail.retry-action.retry-stage2 {
+  color: #fc8181;
+  background: #2d1515;
+  border: 1px solid #7a2a2a;
+}
+
+.event-detail.retry-action.retry-stage3 {
+  color: #63b3ed;
+  background: #0e1f2d;
+  border: 1px solid #1a4a7a;
+}
+
+.event-detail.retry-subject {
+  color: #e2e8f0;
+  font-size: 0.95rem;
+  padding: 6px 8px;
+  margin-top: 4px;
+  background: #1a1a2e;
+  border-radius: 4px;
+  word-break: break-word;
+}
+
+.event-detail.retry-duration {
+  color: #9ca3af;
+  font-size: 0.85rem;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+}
+
 .event-time {
   color: #9a9a9a;
   font-size: 0.85rem;
@@ -331,6 +387,64 @@
 
 .event-detail.time-difference svg {
   color: #4299e1;
+}
+
+.event-detail.time-difference.over-one-hour {
+  color: #ff6b6b;
+  background: #2d1f1f;
+  border-left: 3px solid #f56565;
+}
+
+.event-detail.time-difference.over-one-hour svg {
+  color: #f56565;
+}
+
+.event-detail.email-verification {
+  color: #9ca3af;
+  font-size: 0.9rem;
+  margin-top: 5px;
+  padding: 4px 8px;
+  background: #1e2a2e;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.email-check {
+  color: #48bb78;
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.email-x {
+  color: #f56565;
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.event-detail.draft-status {
+  color: #9ca3af;
+  font-size: 0.9rem;
+  margin-top: 5px;
+  padding: 4px 8px;
+  background: #1e2a2e;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.draft-check {
+  color: #48bb78;
+  font-size: 1.2rem;
+  font-weight: bold;
+}
+
+.draft-x {
+  color: #f56565;
+  font-size: 1.2rem;
+  font-weight: bold;
 }
 
 .event-detail.case-status {
