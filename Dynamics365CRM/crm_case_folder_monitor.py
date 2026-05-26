@@ -45,8 +45,8 @@ RETRY2_SUBFOLDER = "Retry 2"           # child of SOURCE_FOLDER
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
-MOVE_TO_RETRY_MINUTES  = 10  # in SOURCE_FOLDER this long  → move to Retry,   mark read
-MOVE_TO_RETRY2_MINUTES = 10  # in RETRY_SUBFOLDER this long → move to Retry 2
+MOVE_TO_RETRY_MINUTES  = 7   # in SOURCE_FOLDER this long  → move to Retry,   mark read
+MOVE_TO_RETRY2_MINUTES = 7   # in RETRY_SUBFOLDER this long → move to Retry 2
 MOVE_TO_INBOX_MINUTES  = 7   # in RETRY2_SUBFOLDER this long → move to Inbox
 POLL_INTERVAL_SECONDS = 30   # check every 30 seconds
 
