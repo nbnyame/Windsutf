@@ -59,7 +59,7 @@ POLL_INTERVAL_SECONDS = 1800  # every 30 minutes
 
 # Set to True during testing: prefixes descriptions with 'test - ' and
 # immediately cancels each created case.
-TEST_MODE = True
+TEST_MODE = False
 
 STATE_FILE = os.path.join(os.path.dirname(__file__), "splunk_alert_state.json")
 
