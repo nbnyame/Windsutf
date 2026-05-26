@@ -375,15 +375,12 @@ class SplunkAlertPoller:
 
     # ── Case creation / cancellation ───────────────────────────────────────
 
-    def _cancel_case(self, crm: Dynamics365Client, case_id_url: str, ticket: str):
+    def _cancel_case(self, crm: Dynamics365Client, guid: str, ticket: str):
         """Cancel a CRM incident (statecode=2 / Cancelled). Used in TEST_MODE."""
-        m = re.search(r"incidents\(([^)]+)\)", case_id_url)
-        if not m:
-            log.error(f"  Cannot parse incident GUID from: {case_id_url}")
-            return
-        guid = m.group(1)
+        m = re.search(r"incidents\(([^)]+)\)", guid)
+        guid = m.group(1) if m else guid  # handle full URL or bare GUID
         try:
-            crm._request("PATCH", f"incidents({guid})", json={"statecode": 2, "statuscode": 6})
+            crm._request("PATCH", f"incidents({guid})", data={"statecode": 2, "statuscode": 6})
             log.info(f"  TEST_MODE: {ticket} cancelled.")
         except Exception as e:
             log.error(f"  TEST_MODE: failed to cancel {ticket}: {e}")
@@ -485,7 +482,7 @@ class SplunkAlertPoller:
                     log.info(f"  Store {store}: duplicate {dup['ticketnumber']} — skipping.")
                     continue
 
-                result = self._create_case(crm, store, description, "non-start point", "Splunk", received_on)
+                result = self._create_case(crm, store, description, "non-start point", "Splunk", received_on, subject="splunk - update fixit")
                 if result:
                     log.info(f"  Store {store}: created {result['ticketnumber']} (ID: {result['case_id']})")
                     cases_created += 1
