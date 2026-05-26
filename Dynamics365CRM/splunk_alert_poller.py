@@ -36,7 +36,7 @@ import requests
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(__file__))
-from crm_client import CRMClient
+from crm_client import Dynamics365Client
 
 load_dotenv()
 
@@ -330,7 +330,7 @@ class SplunkAlertPoller:
 
     # ── Duplicate check ────────────────────────────────────────────────────
 
-    def _is_duplicate(self, crm: CRMClient, store: str, case_type_code: int) -> dict | None:
+    def _is_duplicate(self, crm: Dynamics365Client, store: str, case_type_code: int) -> dict | None:
         """
         Return existing active case dict if one was created today for
         this store with this case type, else None.
@@ -355,7 +355,7 @@ class SplunkAlertPoller:
 
     # ── Case creation ──────────────────────────────────────────────────────
 
-    def _create_case(self, crm: CRMClient, store: str, description: str,
+    def _create_case(self, crm: Dynamics365Client, store: str, description: str,
                      case_type: str, contact: str, received_on: str) -> dict | None:
         try:
             result = crm.create_case(
@@ -377,7 +377,7 @@ class SplunkAlertPoller:
 
     # ── Process one email ──────────────────────────────────────────────────
 
-    def process_email(self, headers: dict, crm: CRMClient, msg: dict,
+    def process_email(self, headers: dict, crm: Dynamics365Client, msg: dict,
                       cf_late_dest_id: str, non_start_dest_id: str) -> int:
         """Process one message. Returns number of CRM cases created."""
         subject     = msg.get("subject", "")
@@ -489,7 +489,7 @@ class SplunkAlertPoller:
                     time.sleep(POLL_INTERVAL_SECONDS)
                     continue
 
-                crm = CRMClient()
+                crm = Dynamics365Client()
                 messages = self._fetch_messages(headers, source_id)
 
                 if not messages:
