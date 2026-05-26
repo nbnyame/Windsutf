@@ -306,11 +306,20 @@ class SplunkAlertPoller:
         """
         Extract store numbers and per-store Last Sent dates from a CF Late body.
         Returns list of {"store": "11253", "last_sent": "05/24/2026"}.
+
+        Row format (after HTML strip):
+          {store} {Franchisee Name} {days_late} {Last Sent MM/DD/YYYY} ...
+
+        Negative lookbehind (?<![.\d]) prevents matching digits embedded in
+        version numbers like '8.90010'.
         """
         results = []
         seen = set()
-        # Match 5-digit store number, then (name + days), then first MM/DD/YYYY date
-        pattern = re.compile(r"\b(\d{5})\s+[A-Za-z&].+?(\d{2}/\d{2}/\d{4})", re.DOTALL)
+        # 5-digit store (not preceded by . or digit), franchisee name (no digits),
+        # days-late integer, then the Last Sent date
+        pattern = re.compile(
+            r"(?<![.\d])(\d{5})\s+[A-Za-z][^0-9]+\d{1,2}\s+(\d{2}/\d{2}/\d{4})"
+        )
         for m in pattern.finditer(body_text):
             store = m.group(1)
             last_sent = m.group(2)
@@ -363,7 +372,8 @@ class SplunkAlertPoller:
     # ── Case creation ──────────────────────────────────────────────────────
 
     def _create_case(self, crm: Dynamics365Client, store: str, description: str,
-                     case_type: str, contact: str, received_on: str) -> dict | None:
+                     case_type: str, contact: str, received_on: str,
+                     subject: str = None) -> dict | None:
         try:
             result = crm.create_case(
                 description=description,
@@ -373,6 +383,7 @@ class SplunkAlertPoller:
                 contact_phone=None,
                 origin=100000001,   # Internal / Splunk
                 received_on=received_on,
+                subject=subject,
             )
             return result
         except ValueError as e:
@@ -426,7 +437,7 @@ class SplunkAlertPoller:
                     log.info(f"  Store {store}: duplicate {dup['ticketnumber']} — skipping.")
                     continue
 
-                result = self._create_case(crm, store, description, "cf late", "Internal", received_on)
+                result = self._create_case(crm, store, description, "cf late", "Internal", received_on, subject="splunk - server issue")
                 if result:
                     log.info(f"  Store {store}: created {result['ticketnumber']} (ID: {result['case_id']})")
                     cases_created += 1
