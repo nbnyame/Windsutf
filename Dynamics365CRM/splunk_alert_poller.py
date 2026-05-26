@@ -48,12 +48,12 @@ CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
 MAILBOX       = os.getenv("DRAFT_TARGET_MAILBOX", "supportcenter@winmarkcorporation.com")
 GRAPH_BASE    = "https://graph.microsoft.com/v1.0"
 
-# Source folder: Inbox → Internal Requests → Splunk Alerts → CF and Non-Start Point
-SOURCE_FOLDER_PATH = ["Internal Requests", "Splunk Alerts", "CF and Non-Start Point"]
+# Source folder: Inbox → INTERNAL REQUESTS → Splunk Alerts → CF and Non-Start Point
+SOURCE_FOLDER_PATH = ["INTERNAL REQUESTS", "Splunk Alerts", "CF and Non-Start Point"]
 
 # Destination folders after processing (path from Inbox children)
-CF_LATE_DEST_PATH   = ["Internal Requests"]
-NON_START_DEST_PATH = ["Internal Requests", "Splunk Alerts"]
+CF_LATE_DEST_PATH   = ["INTERNAL REQUESTS"]
+NON_START_DEST_PATH = ["INTERNAL REQUESTS", "Splunk Alerts"]
 
 POLL_INTERVAL_SECONDS = 3600  # once per hour
 
@@ -231,7 +231,7 @@ class SplunkAlertPoller:
             while page_url:
                 data = self._graph_get(page_url, headers).json()
                 for f in data.get("value", []):
-                    if f.get("displayName") == name:
+                    if f.get("displayName", "").lower() == name.lower():
                         found_id = f["id"]
                         break
                 if found_id:
@@ -466,7 +466,7 @@ class SplunkAlertPoller:
         log.info("=" * 60)
         log.info("Splunk Alert Poller starting")
         log.info(f"Mailbox  : {MAILBOX}")
-        log.info(f"Source   : Inbox / {' / '.join(SOURCE_FOLDER_PATH)}")
+        log.info(f"Source   : Inbox / INTERNAL REQUESTS / Splunk Alerts / CF and Non-Start Point")
         log.info(f"CF Late  → Internal Requests  (case type: CF Late, contact: Internal)")
         log.info(f"Non-Start → Splunk Alerts      (case type: Non-Start Point, contact: Splunk)")
         log.info(f"Interval : {POLL_INTERVAL_SECONDS}s ({POLL_INTERVAL_SECONDS // 60} min)")
