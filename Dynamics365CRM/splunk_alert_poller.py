@@ -57,6 +57,10 @@ NON_START_DEST_PATH = ["INTERNAL REQUESTS", "Splunk Alerts"]
 
 POLL_INTERVAL_SECONDS = 1800  # every 30 minutes
 
+# Set to True during testing: prefixes descriptions with 'test - ' and
+# immediately cancels each created case.
+TEST_MODE = True
+
 STATE_FILE = os.path.join(os.path.dirname(__file__), "splunk_alert_state.json")
 
 # ── Logging ───────────────────────────────────────────────────────────────────
@@ -78,7 +82,7 @@ log = logging.getLogger(__name__)
 
 class _TextExtractor(HTMLParser):
     """Strip HTML tags, converting block/line elements to spaces."""
-    _BLOCK = {"p", "br", "tr", "li", "div", "hr"}
+    _BLOCK = {"p", "br", "tr", "td", "th", "li", "div", "hr"}
 
     def __init__(self):
         super().__init__()
@@ -369,11 +373,26 @@ class SplunkAlertPoller:
             return {"case_id": cases[0]["incidentid"], "ticketnumber": cases[0]["ticketnumber"]}
         return None
 
-    # ── Case creation ──────────────────────────────────────────────────────
+    # ── Case creation / cancellation ───────────────────────────────────────
+
+    def _cancel_case(self, crm: Dynamics365Client, case_id_url: str, ticket: str):
+        """Cancel a CRM incident (statecode=2 / Cancelled). Used in TEST_MODE."""
+        m = re.search(r"incidents\(([^)]+)\)", case_id_url)
+        if not m:
+            log.error(f"  Cannot parse incident GUID from: {case_id_url}")
+            return
+        guid = m.group(1)
+        try:
+            crm._request("PATCH", f"incidents({guid})", json={"statecode": 2, "statuscode": 6})
+            log.info(f"  TEST_MODE: {ticket} cancelled.")
+        except Exception as e:
+            log.error(f"  TEST_MODE: failed to cancel {ticket}: {e}")
 
     def _create_case(self, crm: Dynamics365Client, store: str, description: str,
                      case_type: str, contact: str, received_on: str,
                      subject: str = None) -> dict | None:
+        if TEST_MODE:
+            description = f"test - {description}"
         try:
             result = crm.create_case(
                 description=description,
@@ -385,6 +404,8 @@ class SplunkAlertPoller:
                 received_on=received_on,
                 subject=subject,
             )
+            if TEST_MODE and result:
+                self._cancel_case(crm, result["case_id"], result["ticketnumber"])
             return result
         except ValueError as e:
             log.error(f"  Store {store}: account error — {e}")
