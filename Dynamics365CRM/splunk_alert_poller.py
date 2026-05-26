@@ -387,7 +387,7 @@ class SplunkAlertPoller:
 
     def _create_case(self, crm: Dynamics365Client, store: str, description: str,
                      case_type: str, contact: str, received_on: str,
-                     subject: str = None) -> dict | None:
+                     subject: str = None, origin: int = 100000001) -> dict | None:
         if TEST_MODE:
             description = f"test - {description}"
         try:
@@ -397,7 +397,7 @@ class SplunkAlertPoller:
                 case_type=case_type,
                 contact=contact,
                 contact_phone=None,
-                origin=100000001,   # Internal / Splunk
+                origin=origin,
                 received_on=received_on,
                 subject=subject,
             )
@@ -455,7 +455,7 @@ class SplunkAlertPoller:
                     log.info(f"  Store {store}: duplicate {dup['ticketnumber']} — skipping.")
                     continue
 
-                result = self._create_case(crm, store, description, "cf late", "Internal", received_on, subject="splunk - server issue")
+                result = self._create_case(crm, store, description, "cf late", "Internal", received_on, subject="splunk - server issue", origin=100000001)
                 if result:
                     log.info(f"  Store {store}: created {result['ticketnumber']} (ID: {result['case_id']})")
                     cases_created += 1
@@ -482,7 +482,7 @@ class SplunkAlertPoller:
                     log.info(f"  Store {store}: duplicate {dup['ticketnumber']} — skipping.")
                     continue
 
-                result = self._create_case(crm, store, description, "non-start point", "Splunk", received_on, subject="splunk - update fixit")
+                result = self._create_case(crm, store, description, "non-start point", "Splunk", received_on, subject="splunk - update fixit", origin=100000001)
                 if result:
                     log.info(f"  Store {store}: created {result['ticketnumber']} (ID: {result['case_id']})")
                     cases_created += 1
