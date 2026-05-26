@@ -55,7 +55,7 @@ SOURCE_FOLDER_PATH = ["INTERNAL REQUESTS", "Splunk Alerts", "CF and Non-Start Po
 CF_LATE_DEST_PATH   = ["INTERNAL REQUESTS"]
 NON_START_DEST_PATH = ["INTERNAL REQUESTS", "Splunk Alerts"]
 
-POLL_INTERVAL_SECONDS = 3600  # once per hour
+POLL_INTERVAL_SECONDS = 1800  # every 30 minutes
 
 STATE_FILE = os.path.join(os.path.dirname(__file__), "splunk_alert_state.json")
 
