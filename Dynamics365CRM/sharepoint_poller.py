@@ -273,7 +273,7 @@ class SharePointPoller:
             "web": 3, "w": 3,
             "voice to text": 100000000, "v": 100000000,
             "internal": 100000001, "i": 100000001,
-            "splunk": 100000001, "s": 100000001,
+            "splunk": 100000002, "s": 100000002,
         }
         origin_text = str(fields.get("Origin", "")).strip().lower()
         origin_code = origin_map.get(origin_text)

@@ -482,7 +482,7 @@ class SplunkAlertPoller:
                     log.info(f"  Store {store}: duplicate {dup['ticketnumber']} — skipping.")
                     continue
 
-                result = self._create_case(crm, store, description, "non-start point", "Splunk", received_on, subject="splunk - update fixit", origin=100000001)
+                result = self._create_case(crm, store, description, "non-start point", "Splunk", received_on, subject="splunk - update fixit", origin=100000002)
                 if result:
                     log.info(f"  Store {store}: created {result['ticketnumber']} (ID: {result['case_id']})")
                     cases_created += 1
