@@ -198,7 +198,7 @@ class SplunkAlertPoller:
 
     def _graph_get(self, url: str, headers: dict,
                    retries: int = 3, backoff: int = 5) -> requests.Response:
-        """GET with automatic retry on transient 5xx errors."""
+        """GET with automatic retry on transient 5xx errors and network timeouts."""
         last_exc = None
         for attempt in range(1, retries + 1):
             try:
@@ -209,6 +209,13 @@ class SplunkAlertPoller:
                 status = e.response.status_code if e.response is not None else 0
                 if status >= 500 and attempt < retries:
                     log.warning(f"  Graph API {status} on attempt {attempt}/{retries}, retrying in {backoff}s...")
+                    time.sleep(backoff)
+                    last_exc = e
+                else:
+                    raise
+            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+                if attempt < retries:
+                    log.warning(f"  Graph API network error on attempt {attempt}/{retries}, retrying in {backoff}s: {e}")
                     time.sleep(backoff)
                     last_exc = e
                 else:
