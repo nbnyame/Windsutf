@@ -320,7 +320,7 @@ class SplunkAlertPoller:
         Row format (after HTML strip):
           {store} {Franchisee Name} {days_late} {Last Sent MM/DD/YYYY} ...
 
-        Negative lookbehind (?<![.\d]) prevents matching digits embedded in
+        Negative lookbehind (?<![.\\d]) prevents matching digits embedded in
         version numbers like '8.90010'.
         """
         results = []
