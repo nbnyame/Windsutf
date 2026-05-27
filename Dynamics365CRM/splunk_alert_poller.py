@@ -59,7 +59,7 @@ POLL_INTERVAL_SECONDS = 1800  # every 30 minutes
 
 # Set to True during testing: prefixes descriptions with 'test - ' and
 # immediately cancels each created case.
-TEST_MODE = False
+TEST_MODE = True
 
 STATE_FILE = os.path.join(os.path.dirname(__file__), "splunk_alert_state.json")
 
@@ -282,7 +282,13 @@ class SplunkAlertPoller:
             return _strip_html(content)
         return re.sub(r"\s+", " ", content).strip()
 
+    def _mark_read(self, headers: dict, msg_id: str):
+        """Mark a message as read."""
+        url = f"{GRAPH_BASE}/users/{MAILBOX}/messages/{msg_id}"
+        requests.patch(url, headers=headers, json={"isRead": True}, timeout=30)
+
     def _move_message(self, headers: dict, msg_id: str, dest_folder_id: str):
+        self._mark_read(headers, msg_id)
         url = f"{GRAPH_BASE}/users/{MAILBOX}/messages/{msg_id}/move"
         resp = requests.post(
             url, headers=headers,
