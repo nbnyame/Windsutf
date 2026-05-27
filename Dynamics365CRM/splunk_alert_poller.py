@@ -421,8 +421,11 @@ class SplunkAlertPoller:
     # ── Process one email ──────────────────────────────────────────────────
 
     def process_email(self, headers: dict, crm: Dynamics365Client, msg: dict,
-                      cf_late_dest_id: str, non_start_dest_id: str) -> int:
-        """Process one message. Returns number of CRM cases created."""
+                      cf_late_dest_id: str, non_start_dest_id: str,
+                      fallback_dest_id: str = None) -> int:
+        """Process one message. Returns number of CRM cases created.
+        On any CRM creation failure, moves email to fallback_dest_id (Create CRM Case).
+        """
         subject     = msg.get("subject", "")
         msg_id      = msg["id"]
         internet_id = msg.get("internetMessageId") or msg_id
@@ -451,6 +454,7 @@ class SplunkAlertPoller:
                 log.warning("  No store entries parsed — check email body format.")
 
             case_type_code = crm.resolve_case_type("cf late")
+            cases_failed = 0
 
             for entry in entries:
                 store     = entry["store"]
@@ -472,10 +476,14 @@ class SplunkAlertPoller:
                 if result:
                     log.info(f"  Store {store}: created {result['ticketnumber']} (ID: {result['case_id']})")
                     cases_created += 1
+                else:
+                    cases_failed += 1
 
+            dest_id  = fallback_dest_id if (cases_failed and fallback_dest_id) else cf_late_dest_id
+            dest_name = "Create CRM Case (fallback)" if (cases_failed and fallback_dest_id) else "Internal Requests"
             try:
-                self._move_message(headers, msg_id, cf_late_dest_id)
-                log.info("  Email moved to Internal Requests.")
+                self._move_message(headers, msg_id, dest_id)
+                log.info(f"  Email moved to {dest_name}.")
             except Exception as e:
                 log.error(f"  Failed to move email: {e}")
 
@@ -486,6 +494,7 @@ class SplunkAlertPoller:
                 log.warning("  No store entries parsed — check email body format.")
 
             case_type_code = crm.resolve_case_type("non-start point")
+            cases_failed = 0
 
             for store in stores:
                 description = "Detected non-start point"
@@ -499,10 +508,14 @@ class SplunkAlertPoller:
                 if result:
                     log.info(f"  Store {store}: created {result['ticketnumber']} (ID: {result['case_id']})")
                     cases_created += 1
+                else:
+                    cases_failed += 1
 
+            dest_id   = fallback_dest_id if (cases_failed and fallback_dest_id) else non_start_dest_id
+            dest_name = "Create CRM Case (fallback)" if (cases_failed and fallback_dest_id) else "Splunk Alerts"
             try:
-                self._move_message(headers, msg_id, non_start_dest_id)
-                log.info("  Email moved to Splunk Alerts.")
+                self._move_message(headers, msg_id, dest_id)
+                log.info(f"  Email moved to {dest_name}.")
             except Exception as e:
                 log.error(f"  Failed to move email: {e}")
 
@@ -533,10 +546,13 @@ class SplunkAlertPoller:
 
                 cf_late_dest_id = self._get_folder_id(headers, CF_LATE_DEST_PATH)
                 non_start_dest_id = self._get_folder_id(headers, NON_START_DEST_PATH)
+                fallback_dest_id  = self._get_folder_id(headers, ["Create CRM Case"])
                 if not cf_late_dest_id or not non_start_dest_id:
                     log.error("Destination folder(s) not found. Retrying next cycle.")
                     time.sleep(POLL_INTERVAL_SECONDS)
                     continue
+                if not fallback_dest_id:
+                    log.warning("'Create CRM Case' folder not found — fallback disabled.")
 
                 crm = Dynamics365Client()
                 messages = self._fetch_messages(headers, source_id)
@@ -552,7 +568,8 @@ class SplunkAlertPoller:
                             log.info(f"  Already processed: '{msg.get('subject', '')}' — skipping.")
                             continue
                         total_created += self.process_email(
-                            headers, crm, msg, cf_late_dest_id, non_start_dest_id
+                            headers, crm, msg, cf_late_dest_id, non_start_dest_id,
+                            fallback_dest_id=fallback_dest_id
                         )
                     if total_created:
                         log.info(f"Total cases created this cycle: {total_created}")
