@@ -322,14 +322,15 @@ class SplunkAlertPoller:
         # 5-digit store (not preceded by . or digit), franchisee name (no digits),
         # days-late integer, then the Last Sent date
         pattern = re.compile(
-            r"(?<![.\d])(\d{5})\s+[A-Za-z][^0-9]+\d{1,2}\s+(\d{2}/\d{2}/\d{4})"
+            r"(?<![.\d])(\d{5})\s+[A-Za-z][^0-9]+(\d{1,2})\s+(\d{2}/\d{2}/\d{4})"
         )
         for m in pattern.finditer(body_text):
-            store = m.group(1)
-            last_sent = m.group(2)
+            store     = m.group(1)
+            days_late = int(m.group(2))
+            last_sent = m.group(3)
             if store not in seen:
                 seen.add(store)
-                results.append({"store": store, "last_sent": last_sent})
+                results.append({"store": store, "last_sent": last_sent, "days_late": days_late})
         return results
 
     @staticmethod
@@ -448,6 +449,12 @@ class SplunkAlertPoller:
             for entry in entries:
                 store     = entry["store"]
                 last_sent = entry["last_sent"]
+                days_late = entry["days_late"]
+
+                if days_late < 3:
+                    log.info(f"  Store {store}: {days_late} day(s) late — below threshold, skipping.")
+                    continue
+
                 description = f"CF Late, last sent {last_sent}"
 
                 dup = self._is_duplicate(crm, store, case_type_code)
