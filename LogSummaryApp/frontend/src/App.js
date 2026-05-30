@@ -11,7 +11,8 @@ import {
   Package,
   Calendar,
   RotateCcw,
-  Inbox
+  Inbox,
+  Zap
 } from 'lucide-react';
 import './App.css';
 
@@ -50,6 +51,8 @@ function App() {
         response = await axios.get(`/api/errors?date=${date}`);
       } else if (activeTab === 'retry') {
         response = await axios.get(`/api/retries?date=${date}`);
+      } else if (activeTab === 'splunk') {
+        response = await axios.get(`/api/splunk-alerts?date=${date}`);
       }
       setEvents(response.data);
     } catch (err) {
@@ -99,6 +102,8 @@ function App() {
         return <AlertCircle className="event-icon error" />;
       case 'retry':
         return <RotateCcw className="event-icon retry" />;
+      case 'splunk':
+        return <Zap className="event-icon splunk" />;
       default:
         return <Clock className="event-icon" />;
     }
@@ -284,6 +289,58 @@ function App() {
               )}
             </>
           )}
+          {event.type === 'splunk' && (
+            <>
+              {event.email_type === 'error' ? (
+                <div className="error-message">{event.message}</div>
+              ) : (
+                <>
+                  <div className="splunk-badges">
+                    <span className={`splunk-type-badge ${event.email_type}`}>
+                      {event.email_type === 'cf_late' ? 'CF Late' : 'Non-Start Point'}
+                    </span>
+                    {event.test_mode && <span className="splunk-test-badge">TEST MODE</span>}
+                  </div>
+                  <div className="event-detail splunk-subject">
+                    <span>{event.subject}</span>
+                  </div>
+                  <div className="splunk-stats">
+                    <span className="splunk-stat created">{event.cases_created.length} created</span>
+                    {event.cases_failed.length > 0 && <span className="splunk-stat failed">{event.cases_failed.length} failed</span>}
+                    {event.cases_skipped.length > 0 && <span className="splunk-stat skipped">{event.cases_skipped.length} duplicate{event.cases_skipped.length !== 1 ? 's' : ''}</span>}
+                    {event.stores_below_threshold.length > 0 && <span className="splunk-stat threshold">{event.stores_below_threshold.length} below threshold</span>}
+                  </div>
+                  {event.cases_created.length > 0 && (
+                    <div className="splunk-store-list">
+                      {event.cases_created.map((c, i) => (
+                        <div key={i} className="splunk-store-row created">
+                          <span className="splunk-check">✓</span>
+                          <span>Store {c.store}: {c.ticket}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {event.cases_failed.length > 0 && (
+                    <div className="splunk-store-list">
+                      {event.cases_failed.map((c, i) => (
+                        <div key={i} className="splunk-store-row failed">
+                          <span className="splunk-x">✗</span>
+                          <span>{c.store ? `Store ${c.store}: ` : ''}{c.error}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {event.destination && (
+                    <div className="event-detail splunk-destination">
+                      <span className={`splunk-dest-badge ${event.destination.includes('fallback') ? 'fallback' : ''}`}>
+                        → {event.destination}
+                      </span>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )}
         </div>
       </div>
     );
@@ -395,9 +452,15 @@ function App() {
         >
           Retries
         </button>
+        <button 
+          className={activeTab === 'splunk' ? 'active' : ''}
+          onClick={() => setActiveTab('splunk')}
+        >
+          Splunk Alerts
+        </button>
       </div>
 
-      {(activeTab === 'case_created' || activeTab === 'drs_update' || activeTab === 'duplicate_increment' || activeTab === 'error' || activeTab === 'retry') && (
+      {(activeTab === 'case_created' || activeTab === 'drs_update' || activeTab === 'duplicate_increment' || activeTab === 'error' || activeTab === 'retry' || activeTab === 'splunk') && (
         <div className="date-picker-container">
           <Calendar size={20} className="calendar-icon" />
           <input 

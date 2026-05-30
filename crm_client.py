@@ -439,23 +439,33 @@ class Dynamics365Client:
 
     def find_resolved_case_today_by_subject(self, store_number, subject_code):
         """
-        Check if a resolved case exists for the given store number created today
+        Check if a resolved case exists for the given store number that was resolved today
         with the same win_subject option set code.
+
+        Uses modifiedon (not createdon) so it catches cases created on any prior day
+        but resolved today — e.g. created yesterday, resolved this morning.
 
         Returns dict with 'case_id', 'ticketnumber' and 'owner_name' if found, else None.
         """
-        today_utc = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        # Get today's date in local time, then convert to UTC range for querying
+        now_local = datetime.now()
+        today_start_local = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+        today_end_local = today_start_local + timedelta(days=1)
+        
+        utc_offset = now_local.astimezone().utcoffset()
+        today_start_utc = (today_start_local - utc_offset).strftime("%Y-%m-%dT%H:%M:%SZ")
+        today_end_utc = (today_end_local - utc_offset).strftime("%Y-%m-%dT%H:%M:%SZ")
         params = {
             "$filter": (
                 f"statecode eq 1 "
                 f"and win_storenumber eq '{store_number}' "
                 f"and win_subject eq {subject_code} "
-                f"and createdon ge {today_utc}T00:00:00Z "
-                f"and createdon lt {today_utc}T23:59:59Z"
+                f"and modifiedon ge {today_start_utc} "
+                f"and modifiedon lt {today_end_utc}"
             ),
-            "$select": "incidentid,ticketnumber,win_storenumber,win_subject,createdon,_ownerid_value",
+            "$select": "incidentid,ticketnumber,win_storenumber,win_subject,modifiedon,_ownerid_value",
             "$top": 1,
-            "$orderby": "createdon desc",
+            "$orderby": "modifiedon desc",
         }
         response = self._request("GET", "incidents", params=params)
         cases = response.json().get("value", [])
@@ -473,17 +483,34 @@ class Dynamics365Client:
         }
 
     def lookup_account_by_store(self, store_number):
-        """Look up an account by its store number (win_storenumber)."""
+        """Look up an active account by its store number (win_storenumber).
+
+        Raises ValueError if no active account is found.  If an account exists
+        but is inactive/closed the error message says so explicitly so the
+        caller can surface a meaningful status.
+        """
         params = {
             "$top": 1,
-            "$filter": f"accountnumber eq '{store_number}'",
+            "$filter": f"accountnumber eq '{store_number}' and statecode eq 0",
             "$select": "accountid,name,accountnumber",
         }
         response = self._request("GET", "accounts", params=params)
         accounts = response.json().get("value", [])
-        if not accounts:
-            raise ValueError(f"No account found for store number '{store_number}'.")
-        return accounts[0]
+        if accounts:
+            return accounts[0]
+
+        # No active account — check whether an inactive one exists
+        params_any = {
+            "$top": 1,
+            "$filter": f"accountnumber eq '{store_number}'",
+            "$select": "accountid,name,accountnumber,statecode",
+        }
+        response_any = self._request("GET", "accounts", params=params_any)
+        if response_any.json().get("value"):
+            raise ValueError(
+                f"Account for store number '{store_number}' is inactive/closed."
+            )
+        raise ValueError(f"No account found for store number '{store_number}'.")
 
     def create_case(self, description, account_id=None, store_number=None,
                     priority=None, contact=None, contact_phone=None,
@@ -551,6 +578,13 @@ class Dynamics365Client:
             if "(" in case_id:
                 case_id = case_id.split("(")[-1].rstrip(")")
             print(f"Case created successfully. ID: {case_id}")
+            
+            # Assign case to Support Center team
+            try:
+                support_center = self.lookup_team_by_name("Support Center")
+                self.assign_case_to_team(case_id, support_center["teamid"])
+            except Exception as e:
+                print(f"Warning: Could not assign case to Support Center: {e}")
             
             # Fetch the created case to get createdon and win_receivedon
             params = {
@@ -624,6 +658,30 @@ class Dynamics365Client:
         response = self._request("GET", "incidents", params=params)
         data = response.json()
         return data.get("value", [])
+
+    def lookup_team_by_name(self, team_name):
+        """Look up a team by name."""
+        params = {
+            "$filter": f"name eq '{team_name}'",
+            "$select": "teamid,name",
+            "$top": 1,
+        }
+        response = self._request("GET", "teams", params=params)
+        teams = response.json().get("value", [])
+        if not teams:
+            raise ValueError(f"No team found with name '{team_name}'.")
+        return teams[0]
+
+    def assign_case_to_team(self, case_id, team_id):
+        """Assign a case to a team."""
+        assign_data = {
+            "ownerid@odata.bind": f"/teams({team_id})"
+        }
+        response = self._request("PATCH", f"incidents({case_id})", data=assign_data)
+        if response.status_code == 204:
+            print(f"Case {case_id} assigned to team successfully.")
+            return True
+        raise Exception(f"Failed to assign case: {response.text}")
 
     def update_case(self, case_id, **fields):
         """Update an existing case with the provided fields."""

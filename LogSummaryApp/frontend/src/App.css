@@ -543,3 +543,155 @@
     grid-template-columns: 1fr;
   }
 }
+
+/* ===== SPLUNK ALERTS ===== */
+
+.event-icon.splunk {
+  color: #b794f4;
+}
+
+.event-card.splunk {
+  border-left: 3px solid #b794f4;
+}
+
+.splunk-badges {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+
+.splunk-type-badge {
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.splunk-type-badge.cf_late {
+  background: #2d2010;
+  color: #f6ad55;
+  border: 1px solid #7a4a1a;
+}
+
+.splunk-type-badge.non_start_point {
+  background: #1e1230;
+  color: #b794f4;
+  border: 1px solid #553c9a;
+}
+
+.splunk-test-badge {
+  font-size: 0.72rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: #1a2d1a;
+  color: #68d391;
+  border: 1px solid #276749;
+  letter-spacing: 0.05em;
+}
+
+.splunk-subject {
+  color: #e2e8f0;
+  font-size: 0.95rem;
+  padding: 4px 8px;
+  margin-bottom: 4px;
+}
+
+.splunk-stats {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 6px 0;
+}
+
+.splunk-stat {
+  font-size: 0.8rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 10px;
+}
+
+.splunk-stat.created {
+  background: #1a2d1a;
+  color: #68d391;
+  border: 1px solid #276749;
+}
+
+.splunk-stat.failed {
+  background: #2d1515;
+  color: #fc8181;
+  border: 1px solid #7a2a2a;
+}
+
+.splunk-stat.skipped {
+  background: #1a1f2d;
+  color: #90cdf4;
+  border: 1px solid #2a4a7a;
+}
+
+.splunk-stat.threshold {
+  background: #2d2010;
+  color: #f6e05e;
+  border: 1px solid #7a5a1a;
+}
+
+.splunk-store-list {
+  margin: 6px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.splunk-store-row {
+  font-size: 0.85rem;
+  padding: 3px 8px;
+  border-radius: 3px;
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.splunk-store-row.created {
+  color: #9ae6b4;
+  background: #0f1f12;
+}
+
+.splunk-store-row.failed {
+  color: #feb2b2;
+  background: #1f0f0f;
+}
+
+.splunk-check {
+  color: #68d391;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.splunk-x {
+  color: #fc8181;
+  font-weight: bold;
+  flex-shrink: 0;
+}
+
+.splunk-destination {
+  margin-top: 8px;
+}
+
+.splunk-dest-badge {
+  font-size: 0.82rem;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 4px;
+  background: #1a1f2d;
+  color: #90cdf4;
+  border: 1px solid #2a4a7a;
+}
+
+.splunk-dest-badge.fallback {
+  background: #2d1515;
+  color: #fc8181;
+  border: 1px solid #7a2a2a;
+}

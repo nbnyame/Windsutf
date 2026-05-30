@@ -571,6 +571,18 @@ NOTES:
 2026-05-18 15:20:02,789 [ERROR]   Failed to move 'Store 21158 Hardware Issue': 503 Server Error: Service Unavailable
 
 
+# ===== FM SCENARIO 8: 5xx Retry (Transient Microsoft Outage) =====
+# Graph API returns 502/503/504 during a folder list or message scan.
+# Monitor retries up to 3 times with a 5-second backoff before giving up.
+# Case A: recovers on retry 2 (no disruption to normal operation)
+2026-05-22 20:14:38,500 [WARNING]   Graph API 502 on attempt 1/3, retrying in 5s...
+2026-05-22 20:14:44,100 [INFO] Graph API token acquired/refreshed.
+# Case B: all 3 attempts fail (sustained outage - cycle skipped, retried next poll)
+2026-05-23 01:29:44,500 [WARNING]   Graph API 502 on attempt 1/3, retrying in 5s...
+2026-05-23 01:29:50,500 [WARNING]   Graph API 502 on attempt 2/3, retrying in 5s...
+2026-05-23 01:29:56,700 [ERROR] Unexpected error in monitor cycle: 502 Server Error: Bad Gateway for url: https://graph.microsoft.com/...
+
+
 ========================================
 FOLDER MONITOR KEY PATTERNS:
 ========================================
@@ -597,6 +609,231 @@ FOLDER MONITOR KEY PATTERNS:
 5. CYCLE SUMMARY (only logged when emails were moved):
    - "Bounced {count} email(s) this cycle."
 
-6. ERRORS:
+6. TRANSIENT API RETRIES (5xx from Microsoft):
+   - "Graph API {status} on attempt {n}/{total}, retrying in 5s..." - WARNING, auto-retried
+   - Retries up to 3 times with 5s backoff; recovers silently if Microsoft recovers
+   - If all 3 attempts fail, falls through to the ERROR below
+
+7. ERRORS:
    - "Subfolder '{name}' not found under '{parent}'" - Folder missing/renamed
    - "Failed to move '{subject}': {error}" - API error during move
+   - "Unexpected error in monitor cycle: 502..." - Sustained outage (all retries exhausted)
+
+
+========================================
+SPLUNK ALERT POLLER LOG SAMPLES (splunk_alert_poller.log)
+========================================
+
+NOTES:
+- Script: splunk_alert_poller.py  (run via start_splunk_alert_poller.bat)
+- Source folder: supportcenter@winmarkcorporation.com / Inbox / INTERNAL REQUESTS / Splunk Alerts / CF and Non-Start Point
+- Email type "CF Late" (subject contains "CF Late Stores Report"):
+    * Creates case type "cf late", contact "Internal", origin Internal (100000001)
+    * Subject: "splunk - server issue"
+    * Only creates if days_late >= 3 (stores below threshold are logged and skipped)
+    * Destination after processing: INTERNAL REQUESTS (top-level)
+- Email type "Non-Start Point" (subject contains "Detected non-start point"):
+    * Creates case type "non-start point", contact "Splunk", origin Splunk (100000002)
+    * Subject: "splunk - update fixit"
+    * Destination after processing: INTERNAL REQUESTS / Splunk Alerts
+- Fallback: if any CRM case creation fails, email is moved to Inbox / Create CRM Case
+- State file: splunk_alert_state.json - persists processed email IDs across restarts
+- Polls every 1800s (30 minutes)
+- TEST_MODE: when True, prefixes descriptions with "test - " and immediately cancels each created case
+
+
+# ===== SAP SCENARIO 1: Poller Startup =====
+2026-05-26 09:27:41,782 [INFO] ============================================================
+2026-05-26 09:27:41,783 [INFO] Splunk Alert Poller starting
+2026-05-26 09:27:41,783 [INFO] Mailbox  : supportcenter@winmarkcorporation.com
+2026-05-26 09:27:41,783 [INFO] Source   : Inbox / INTERNAL REQUESTS / Splunk Alerts / CF and Non-Start Point
+2026-05-26 09:27:41,783 [INFO] CF Late  → Internal Requests  (case type: CF Late, contact: Internal)
+2026-05-26 09:27:41,783 [INFO] Non-Start → Splunk Alerts      (case type: Non-Start Point, contact: Splunk)
+2026-05-26 09:27:41,783 [INFO] Interval : 1800s (30 min)
+2026-05-26 09:27:41,784 [INFO] ============================================================
+2026-05-26 09:27:42,260 [INFO] Graph API token acquired/refreshed.
+# Note: if state file exists, "Loaded state: N processed ID(s)." appears BEFORE the === block
+
+
+# ===== SAP SCENARIO 2: No Messages (Quiet Poll) =====
+2026-05-26 10:57:39,132 [INFO] No messages in folder.
+2026-05-26 10:57:39,132 [INFO] Sleeping 1800s until next check...
+
+
+# ===== SAP SCENARIO 3: CF Late - Cases Created Successfully =====
+2026-05-26 09:48:29,163 [INFO] Found 1 message(s) in folder.
+2026-05-26 09:48:29,164 [INFO] Processing 'CF Late Stores Report for 05/26/2026' (type=cf_late)
+2026-05-26 09:48:29,623 [INFO]   Found 4 store(s) in CF Late report.
+2026-05-26 09:48:31,128 [INFO]   Store 11253: created CAS-364494-Y3K4K6 (ID: 29a7e3f5-1159-f111-a610-005056ad6d42)
+2026-05-26 09:48:31,333 [INFO]   Store 40087: created CAS-364495-J7L6K9 (ID: 2ea7e3f5-1159-f111-a610-005056ad6d42)
+2026-05-26 09:48:31,546 [INFO]   Store 80494: created CAS-364496-Q5G2P3 (ID: 33a7e3f5-1159-f111-a610-005056ad6d42)
+2026-05-26 09:48:31,722 [INFO]   Store 80640: created CAS-364497-H3Z5X4 (ID: 38a7e3f5-1159-f111-a610-005056ad6d42)
+2026-05-26 09:48:32,210 [INFO]   Email moved to Internal Requests.
+2026-05-26 09:48:32,211 [INFO] Total cases created this cycle: 4
+2026-05-26 09:48:32,211 [INFO] Sleeping 1800s until next check...
+
+
+# ===== SAP SCENARIO 4: CF Late - Store Not Found in CRM =====
+# Store number from email does not exist in CRM (invalid/phantom store).
+# Case creation is skipped for that store; other stores in the same email still process normally.
+2026-05-26 09:27:48,641 [ERROR]   Store 90010: account error — No account found for store number '90010'.
+2026-05-26 09:27:48,963 [INFO]   Store 20838: created CAS-364485-R4G3J3 (ID: 666d6f11-0f59-f111-a610-005056ad6d42)
+# Note: if this is the ONLY store in the email, cases_failed > 0, so email moves to Create CRM Case fallback.
+
+
+# ===== SAP SCENARIO 5: CF Late - Below Threshold (days_late < 3) =====
+# All stores in the report were only 1 day late — none meet the 3-day threshold.
+# No cases created, email still moves to normal destination.
+2026-05-27 08:16:30,970 [INFO]   Found 9 store(s) in CF Late report.
+2026-05-27 08:16:30,970 [INFO]   Store 10641: 1 day(s) late — below threshold, skipping.
+2026-05-27 08:16:30,971 [INFO]   Store 11720: 1 day(s) late — below threshold, skipping.
+2026-05-27 08:16:30,971 [INFO]   Store 11749: 1 day(s) late — below threshold, skipping.
+2026-05-27 08:16:31,421 [INFO]   Email moved to Internal Requests.
+2026-05-27 08:16:31,421 [INFO] Sleeping 1800s until next check...
+# Note: "Total cases created this cycle:" line is omitted when 0 cases created.
+
+
+# ===== SAP SCENARIO 6: CF Late - Duplicate Skipped =====
+# A case for this store was already created today; duplicate detection fires.
+2026-05-26 09:50:53,870 [INFO]   Store 11874: duplicate CAS-364501-Z7Y0V2 — skipping.
+
+
+# ===== SAP SCENARIO 7: Non-Start Point - Cases Created Successfully =====
+2026-05-26 10:00:29,661 [INFO] Processing 'DRSUS Update - Detected non-start point' (type=non_start_point)
+2026-05-26 10:00:30,099 [INFO]   Found 24 store(s) in Non-Start Point alert.
+2026-05-26 10:00:31,540 [INFO]   Store 10641: created CAS-364511-F5N9B2 (ID: e9a14da1-1359-f111-a610-005056ad6d42)
+2026-05-26 10:00:31,752 [INFO]   Store 11523: created CAS-364512-B2P2G8 (ID: eea14da1-1359-f111-a610-005056ad6d42)
+2026-05-26 10:00:39,248 [INFO]   Store 80999: created CAS-364534-J3K2D2 (ID: e9bd91a7-1359-f111-a610-005056ad6d42)
+2026-05-26 10:00:39,851 [INFO]   Email moved to Splunk Alerts.
+2026-05-26 10:00:39,852 [INFO] Total cases created this cycle: 24
+2026-05-26 10:00:39,852 [INFO] Sleeping 1800s until next check...
+
+
+# ===== SAP SCENARIO 8: Non-Start Point - No Stores Parsed =====
+# Email body did not match expected format; regex found no store numbers.
+2026-05-26 09:27:45,511 [INFO] Processing 'DRSUS Update - Detected non-start point' (type=non_start_point)
+2026-05-26 09:27:46,028 [INFO]   Found 0 store(s) in Non-Start Point alert.
+2026-05-26 09:27:46,028 [WARNING]   No store entries parsed — check email body format.
+2026-05-26 09:27:46,780 [INFO]   Email moved to Splunk Alerts.
+
+
+# ===== SAP SCENARIO 9: TEST_MODE - Cases Created Then Immediately Cancelled =====
+# TEST_MODE=True: description is prefixed with "test - " and each case is cancelled right after creation.
+# "Cannot parse incident GUID from:" error is a known TEST_MODE artefact (bare GUID in OData header) and is harmless.
+2026-05-26 10:07:02,148 [INFO] Processing 'DRSUS Update - Detected non-start point' (type=non_start_point)
+2026-05-26 10:07:02,612 [INFO]   Found 18 store(s) in Non-Start Point alert.
+2026-05-26 10:07:04,148 [INFO]   TEST_MODE: CAS-364535-T1D8C8 cancelled.
+2026-05-26 10:07:04,149 [INFO]   Store 11008: created CAS-364535-T1D8C8 (ID: 5d55c687-1459-f111-a610-005056ad6d42)
+2026-05-26 10:07:04,508 [INFO]   TEST_MODE: CAS-364536-N1H6W5 cancelled.
+2026-05-26 10:07:04,508 [INFO]   Store 11450: created CAS-364536-N1H6W5 (ID: 6355c687-1459-f111-a610-005056ad6d42)
+2026-05-26 10:07:09,418 [INFO]   Email moved to Splunk Alerts.
+2026-05-26 10:07:09,419 [INFO] Total cases created this cycle: 18
+# The "Cannot parse incident GUID" errors seen in earlier log cycles were a pre-fix artefact;
+# the cancellation still succeeded. These errors no longer appear after the fix.
+
+
+# ===== SAP SCENARIO 10: Email Already Processed (State File Hit) =====
+# Email's internetMessageId is in splunk_alert_state.json from a previous cycle.
+2026-05-26 10:12:31,910 [INFO]   Already processed: 'DRSUS Update - Detected non-start point' — skipping.
+
+
+# ===== SAP SCENARIO 11: Source Folder Not Found =====
+# Folder path mismatch or folder renamed/moved. Poller retries next cycle.
+2026-05-26 09:14:57,398 [ERROR] Folder 'Internal Requests' not found under current path.
+2026-05-26 09:14:57,398 [ERROR] Source folder not found. Retrying next cycle.
+
+
+# ===== SAP SCENARIO 12: Network Timeout (Transient) =====
+# Graph API call timed out mid-cycle. Cycle is abandoned; poller sleeps and retries next poll.
+2026-05-26 09:21:11,028 [ERROR] Unexpected error in poller cycle: HTTPSConnectionPool(host='graph.microsoft.com', port=443): Read timed out. (read timeout=30)
+2026-05-26 09:21:11,028 [INFO] Sleeping 1800s until next check...
+
+
+# ===== SAP SCENARIO 13: CRM Failure Fallback - Email Moved to Create CRM Case =====
+# One or more stores could not have cases created (CRM API error, account error, etc.).
+# Email is moved to Inbox / Create CRM Case so folder monitor can retry via Copilot.
+2026-05-27 10:00:00,000 [INFO] Processing 'CF Late Stores Report for 05/27/2026' (type=cf_late)
+2026-05-27 10:00:00,500 [INFO]   Found 2 store(s) in CF Late report.
+2026-05-27 10:00:01,000 [ERROR]   Store 11253: failed to create case — 503 Server Error: Service Unavailable
+2026-05-27 10:00:01,500 [ERROR]   Store 40087: failed to create case — 503 Server Error: Service Unavailable
+2026-05-27 10:00:02,000 [INFO]   Email moved to Create CRM Case (fallback).
+# Note: "'Create CRM Case' folder not found — fallback disabled." is logged as WARNING if the
+# fallback folder itself is missing; email then moves to the normal destination.
+
+
+# ===== SAP SCENARIO 14: Multiple Emails in One Cycle =====
+# Three emails in source folder processed in sequence.
+2026-05-26 10:12:28,270 [INFO] Found 3 message(s) in folder.
+2026-05-26 10:12:28,271 [INFO] Processing 'CF Late Stores Report for 05/18/2026' (type=cf_late)
+2026-05-26 10:12:28,855 [INFO]   Found 5 store(s) in CF Late report.
+# ... per-store lines ...
+2026-05-26 10:12:31,908 [INFO]   Email moved to Internal Requests.
+2026-05-26 10:12:31,910 [INFO]   Already processed: 'DRSUS Update - Detected non-start point' — skipping.
+2026-05-26 10:12:31,911 [INFO] Processing 'CF Late Stores Report for 05/20/2026' (type=cf_late)
+2026-05-26 10:12:32,404 [INFO]   Found 10 store(s) in CF Late report.
+# ... per-store lines ...
+2026-05-26 10:12:35,777 [INFO]   Email moved to Internal Requests.
+2026-05-26 10:12:35,779 [INFO] Total cases created this cycle: 15
+2026-05-26 10:12:35,780 [INFO] Sleeping 1800s until next check...
+
+
+========================================
+SPLUNK ALERT POLLER KEY PATTERNS:
+========================================
+
+1. STARTUP:
+   - "Splunk Alert Poller starting"
+   - "Mailbox  : {mailbox}"
+   - "Source   : Inbox / INTERNAL REQUESTS / Splunk Alerts / CF and Non-Start Point"
+   - "CF Late  → Internal Requests  (case type: CF Late, contact: Internal)"
+   - "Non-Start → Splunk Alerts      (case type: Non-Start Point, contact: Splunk)"
+   - "Interval : {N}s ({N} min)"
+   - Optional prefix: "Loaded state: {N} processed ID(s)."
+
+2. EMAIL DETECTION:
+   - "Found {N} message(s) in folder." - Messages present
+   - "No messages in folder." - Empty source folder
+   - "Processing '{subject}' (type={cf_late|non_start_point})" - Processing begins
+   - "Skipping unrecognised subject: '{subject}'" - Unknown email type, not processed
+
+3. CF LATE - PARSING AND CASE CREATION:
+   - "Found {N} store(s) in CF Late report." - Parsed store count
+   - "No store entries parsed — check email body format." - WARNING, parsing failed
+   - "Store {store}: {N} day(s) late — below threshold, skipping." - days_late < 3, skipped
+   - "Store {store}: duplicate {ticket} — skipping." - Active case today, skipped
+   - "Store {store}: created {ticket} (ID: {guid})" - Case created successfully
+   - "Store {store}: account error — No account found for store number '{store}'." - Store not in CRM
+   - "Store {store}: failed to create case — {error}" - CRM API error
+   - "Email moved to Internal Requests." - Normal move after processing
+   - "Email moved to Create CRM Case (fallback)." - Fallback when any store creation fails
+
+4. NON-START POINT - PARSING AND CASE CREATION:
+   - "Found {N} store(s) in Non-Start Point alert." - Parsed store count
+   - "No store entries parsed — check email body format." - WARNING, parsing failed
+   - "Store {store}: duplicate {ticket} — skipping." - Active case today, skipped
+   - "Store {store}: created {ticket} (ID: {guid})" - Case created successfully
+   - "Store {store}: account error — No account found for store number '{store}'." - Store not in CRM
+   - "Store {store}: failed to create case — {error}" - CRM API error
+   - "Email moved to Splunk Alerts." - Normal move after processing
+   - "Email moved to Create CRM Case (fallback)." - Fallback when any store creation fails
+
+5. TEST_MODE:
+   - "TEST_MODE: {ticket} cancelled." - Case created then immediately cancelled (TEST_MODE=True)
+   - Description in CRM is prefixed "test - " when TEST_MODE=True
+   - Normal "Store {store}: created {ticket}" log still appears after the cancel line
+
+6. ALREADY PROCESSED:
+   - "Already processed: '{subject}' — skipping." - Email's internetMessageId in state file
+
+7. CYCLE SUMMARY:
+   - "Total cases created this cycle: {N}" - Logged only when N > 0
+   - "Sleeping {N}s until next check..." - End of every cycle
+
+8. ERRORS:
+   - "Folder '{name}' not found under current path." - Sub-folder missing during path walk
+   - "Source folder not found. Retrying next cycle." - Fatal path failure, cycle skipped
+   - "Destination folder(s) not found. Retrying next cycle." - CF Late or Non-Start dest missing
+   - "'Create CRM Case' folder not found — fallback disabled." - WARNING, fallback unavailable
+   - "Could not fetch body: {error}" - Failed to retrieve email body; email skipped entirely
+   - "Unexpected error in poller cycle: HTTPSConnectionPool..." - Network timeout, cycle aborted
+   - "Unexpected error in poller cycle: {error}" - Any unhandled exception in a cycle

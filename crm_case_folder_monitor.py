@@ -45,8 +45,8 @@ RETRY2_SUBFOLDER = "Retry 2"           # child of SOURCE_FOLDER
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
-MOVE_TO_RETRY_MINUTES  = 10  # in SOURCE_FOLDER this long  → move to Retry,   mark read
-MOVE_TO_RETRY2_MINUTES = 10  # in RETRY_SUBFOLDER this long → move to Retry 2
+MOVE_TO_RETRY_MINUTES  = 7   # in SOURCE_FOLDER this long  → move to Retry,   mark read
+MOVE_TO_RETRY2_MINUTES = 7   # in RETRY_SUBFOLDER this long → move to Retry 2
 MOVE_TO_INBOX_MINUTES  = 7   # in RETRY2_SUBFOLDER this long → move to Inbox
 POLL_INTERVAL_SECONDS = 30   # check every 30 seconds
 
@@ -144,6 +144,27 @@ class CRMCaseFolderMonitor:
 
     # ── Graph API helpers ─────────────────────────────────────────────────
 
+    def _graph_get(self, url: str, headers: dict, retries: int = 3, backoff: int = 5) -> requests.Response:
+        """
+        GET with automatic retry on transient 5xx errors.
+        Raises the final exception if all attempts fail.
+        """
+        last_exc = None
+        for attempt in range(1, retries + 1):
+            try:
+                resp = requests.get(url, headers=headers, timeout=30)
+                resp.raise_for_status()
+                return resp
+            except requests.exceptions.HTTPError as e:
+                status = e.response.status_code if e.response is not None else 0
+                if status >= 500 and attempt < retries:
+                    log.warning(f"  Graph API {status} on attempt {attempt}/{retries}, retrying in {backoff}s...")
+                    time.sleep(backoff)
+                    last_exc = e
+                else:
+                    raise
+        raise last_exc
+
     def _get_child_folder_id(self, headers: dict, parent_folder_id: str, folder_name: str) -> str | None:
         """Return the ID of a named child folder under any parent folder ID."""
         url = (
@@ -151,9 +172,7 @@ class CRMCaseFolderMonitor:
             f"?$top=50&$select=id,displayName"
         )
         while url:
-            resp = requests.get(url, headers=headers, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
+            data = self._graph_get(url, headers).json()
             for f in data.get("value", []):
                 if f.get("displayName") == folder_name:
                     return f["id"]
@@ -167,9 +186,7 @@ class CRMCaseFolderMonitor:
             f"?$top=50&$select=id,displayName"
         )
         while url:
-            resp = requests.get(url, headers=headers, timeout=30)
-            resp.raise_for_status()
-            data = resp.json()
+            data = self._graph_get(url, headers).json()
             for f in data.get("value", []):
                 if f.get("displayName") == folder_name:
                     return f["id"]
@@ -210,9 +227,7 @@ class CRMCaseFolderMonitor:
             f"?$select=id,subject,receivedDateTime,internetMessageId,isRead"
             f"&$top=50"
         )
-        resp = requests.get(msgs_url, headers=headers, timeout=30)
-        resp.raise_for_status()
-        messages = resp.json().get("value", [])
+        messages = self._graph_get(msgs_url, headers).json().get("value", [])
 
         for msg in messages:
             iid = msg.get("internetMessageId") or msg["id"]

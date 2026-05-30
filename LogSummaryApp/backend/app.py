@@ -13,6 +13,7 @@ BASE_DIR = Path(__file__).parent.parent.parent
 POLLER_LOG = BASE_DIR / 'poller.log'
 DRS_POLLER_LOG = BASE_DIR / 'drs_poller.log'
 FOLDER_MONITOR_LOG = BASE_DIR / 'folder_monitor.log'
+SPLUNK_LOG = BASE_DIR / 'splunk_alert_poller.log'
 
 def parse_folder_monitor(log_file, filter_date=None):
     """Parse folder monitor events from folder_monitor.log"""
@@ -588,6 +589,171 @@ def get_retries():
     events.sort(key=lambda x: x['timestamp'], reverse=True)
     return jsonify(events)
 
+def parse_splunk_alerts(log_file, filter_date=None):
+    """Parse events from splunk_alert_poller.log"""
+    events = []
+    try:
+        with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
+            lines = f.readlines()
+
+        current_cycle = None
+
+        def finalize():
+            nonlocal current_cycle
+            if current_cycle:
+                events.append(current_cycle)
+                current_cycle = None
+
+        for line in lines:
+            # New processing cycle
+            proc_match = re.search(
+                r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ \[INFO\] Processing '(.+?)' \(type=(cf_late|non_start_point)\)",
+                line
+            )
+            if proc_match:
+                finalize()
+                timestamp_str, subject, email_type = proc_match.groups()
+                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+                if filter_date and timestamp.date() != filter_date:
+                    continue
+                current_cycle = {
+                    'timestamp': timestamp.isoformat(),
+                    'type': 'splunk',
+                    'email_type': email_type,
+                    'subject': subject,
+                    'cases_created': [],
+                    'cases_failed': [],
+                    'cases_skipped': [],
+                    'stores_below_threshold': [],
+                    'total_stores': 0,
+                    'total_created': 0,
+                    'destination': None,
+                    'test_mode': False,
+                }
+                continue
+
+            # Already processed — ends current cycle
+            if re.search(r'\[INFO\]\s+Already processed:', line):
+                finalize()
+                continue
+
+            if current_cycle is None:
+                # Standalone errors outside a cycle
+                err_match = re.search(
+                    r"(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ \[ERROR\] (.+)", line
+                )
+                if err_match:
+                    timestamp_str, message = err_match.groups()
+                    timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+                    if filter_date and timestamp.date() != filter_date:
+                        continue
+                    events.append({
+                        'timestamp': timestamp.isoformat(),
+                        'type': 'splunk',
+                        'email_type': 'error',
+                        'subject': None,
+                        'message': message.strip(),
+                        'cases_created': [],
+                        'cases_failed': [],
+                        'cases_skipped': [],
+                        'stores_below_threshold': [],
+                        'total_stores': 0,
+                        'total_created': 0,
+                        'destination': None,
+                        'test_mode': False,
+                    })
+                continue
+
+            # Found N stores
+            found_match = re.search(r'\[INFO\]\s+Found (\d+) store\(s\)', line)
+            if found_match:
+                current_cycle['total_stores'] = int(found_match.group(1))
+                continue
+
+            # Store created
+            created_match = re.search(r'\[INFO\]\s+Store (\d+): created (CAS-\S+)', line)
+            if created_match:
+                store, ticket = created_match.groups()
+                current_cycle['cases_created'].append({'store': store, 'ticket': ticket})
+                continue
+
+            # Store account error
+            acct_match = re.search(r'\[ERROR\]\s+Store (\d+): account error — (.+)', line)
+            if acct_match:
+                store, error = acct_match.groups()
+                current_cycle['cases_failed'].append({'store': store, 'error': error.strip()})
+                continue
+
+            # Store failed to create case
+            fail_match = re.search(r'\[ERROR\]\s+Store (\d+): failed to create case — (.+)', line)
+            if fail_match:
+                store, error = fail_match.groups()
+                current_cycle['cases_failed'].append({'store': store, 'error': error.strip()})
+                continue
+
+            # Store below threshold
+            thresh_match = re.search(r'\[INFO\]\s+Store (\d+): (\d+) day\(s\) late — below threshold, skipping\.', line)
+            if thresh_match:
+                store, days = thresh_match.groups()
+                current_cycle['stores_below_threshold'].append({'store': store, 'days_late': int(days)})
+                continue
+
+            # Store duplicate skipped
+            dup_match = re.search(r'\[INFO\]\s+Store (\d+): duplicate (CAS-\S+) — skipping\.', line)
+            if dup_match:
+                store, ticket = dup_match.groups()
+                current_cycle['cases_skipped'].append({'store': store, 'ticket': ticket})
+                continue
+
+            # TEST_MODE cancel
+            if re.search(r'\[INFO\]\s+TEST_MODE:', line):
+                current_cycle['test_mode'] = True
+                continue
+
+            # Email destination
+            moved_match = re.search(r'\[INFO\]\s+Email moved to (.+)\.', line)
+            if moved_match:
+                current_cycle['destination'] = moved_match.group(1).strip()
+                continue
+
+            # Total cases created this cycle
+            total_match = re.search(r'\[INFO\] Total cases created this cycle: (\d+)', line)
+            if total_match:
+                current_cycle['total_created'] = int(total_match.group(1))
+                continue
+
+            # Inline errors within a cycle
+            inline_err = re.search(r'\[ERROR\]\s+(.+)', line)
+            if inline_err:
+                current_cycle['cases_failed'].append({'store': None, 'error': inline_err.group(1).strip()})
+                continue
+
+        finalize()
+
+    except FileNotFoundError:
+        pass
+    except Exception as e:
+        print(f'Error parsing splunk alert log: {e}')
+    return events
+
+
+@app.route('/api/splunk-alerts', methods=['GET'])
+def get_splunk_alerts():
+    """Return parsed Splunk alert poller events for a given date"""
+    date_param = request.args.get('date')
+    filter_date = None
+    if date_param:
+        try:
+            filter_date = datetime.strptime(date_param, '%Y-%m-%d').date()
+        except ValueError:
+            filter_date = date.today()
+    else:
+        filter_date = date.today()
+    events = parse_splunk_alerts(SPLUNK_LOG, filter_date=filter_date)
+    events.sort(key=lambda x: x['timestamp'], reverse=True)
+    return jsonify(events)
+
+
 @app.route('/api/health', methods=['GET'])
 def health_check():
     """Health check endpoint"""
@@ -595,7 +761,8 @@ def health_check():
         'status': 'healthy',
         'poller_log_exists': POLLER_LOG.exists(),
         'drs_poller_log_exists': DRS_POLLER_LOG.exists(),
-        'folder_monitor_log_exists': FOLDER_MONITOR_LOG.exists()
+        'folder_monitor_log_exists': FOLDER_MONITOR_LOG.exists(),
+        'splunk_log_exists': SPLUNK_LOG.exists()
     })
 
 @app.route('/', defaults={'path': ''})
