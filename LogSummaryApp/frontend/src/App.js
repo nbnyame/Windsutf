@@ -456,7 +456,7 @@ function App() {
           className={activeTab === 'splunk' ? 'active' : ''}
           onClick={() => setActiveTab('splunk')}
         >
-          Splunk Alerts
+          CF and Non-Start Point
         </button>
       </div>
 
