@@ -22,7 +22,7 @@ function App() {
   const [error, setError] = useState(null);
   const [activeTab, setActiveTab] = useState('case_created');
   const [autoRefresh, setAutoRefresh] = useState(true);
-  const [selectedDate, setSelectedDate] = useState(new Date().toISOString().split('T')[0]);
+  const [selectedDate, setSelectedDate] = useState(new Date().toLocaleDateString('en-CA'));
   const [events, setEvents] = useState([]);
 
   const fetchSummary = async () => {
@@ -114,7 +114,7 @@ function App() {
   };
 
   const getTodayDate = () => {
-    return new Date().toISOString().split('T')[0];
+    return new Date().toLocaleDateString('en-CA');
   };
 
   const isTimeDifferenceOverOneHour = (timeDiff) => {
