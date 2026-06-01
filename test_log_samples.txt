@@ -12,7 +12,7 @@ NOTES:
 - Email verification now:
   * Waits 30 seconds and retries if email not found initially
   * Checks "Create CRM Case", "Create CRM Case/Retry", and "Create CRM Case/Retry 2" on every attempt
-  * If still not found, tries +/-12h (AM/PM swap) and +/-24h (wrong date) offsets
+  * If still not found, tries +/-1h (timezone/DST), +/-12h (AM/PM swap) and +/-24h (wrong date) offsets
   * If found at an offset, auto-corrects SharePoint (Dateandtime/Time) and CRM (received-on)
   * Updates SharePoint "EmailVerification" column (Yes/No) based on result
   * Runs for both new cases AND increment cases (but not duplicates)
@@ -374,7 +374,7 @@ Case 85fbbf42-4e4e-f111-a60e-005056ad6d42 assigned to team successfully.
 2026-05-13 19:36:00,292 [WARNING]   [TIME WARNING] Received-on time '05/14/2026 07:31 PM' is in the future by 23:54:59. This is likely an AI extraction error.
 2026-05-13 19:36:02,613 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
 2026-05-13 19:36:12,615 [INFO]   [Email Verification] Retrying email search in ['Calls Entered', 'Create CRM Case']...
-2026-05-13 19:36:13,500 [INFO]   [Email Verification] Trying time-corrected search (+/-12h, +/-24h)...
+2026-05-13 19:36:13,500 [INFO]   [Email Verification] Trying time-corrected search (+/-1h, +/-12h, +/-24h)...
 2026-05-13 19:36:14,321 [INFO]   [Email Verification] [OK] Found email with -24h (wrong date) correction in 'Calls Entered' at 2026-05-13T19:31:15Z from no-reply@zoom.us
 2026-05-13 19:36:14,322 [INFO]   [Email Verification] Correcting received time from 2026-05-15T00:31:00Z to 2026-05-14T00:31:00Z
 2026-05-13 19:36:14,700 [INFO]   [Time Correction] Corrected received_on to 05/13/2026 7:31 pm (UTC: 2026-05-14T00:31:00Z)
@@ -400,7 +400,7 @@ Case 2b3402e1-2c4f-f111-a60e-005056ad6d42 assigned to team successfully.
 2026-05-13 19:40:00,502 [INFO]   Params: contact=Jane, phone=555-1234, subject=Software Issue, case_type=Third party
 2026-05-13 19:40:02,000 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
 2026-05-13 19:40:12,001 [INFO]   [Email Verification] Retrying email search in ['Emails From Franchisees', 'Emails From FOMs', 'Create CRM Case']...
-2026-05-13 19:40:13,000 [INFO]   [Email Verification] Trying time-corrected search (+/-12h, +/-24h)...
+2026-05-13 19:40:13,000 [INFO]   [Email Verification] Trying time-corrected search (+/-1h, +/-12h, +/-24h)...
 2026-05-13 19:40:13,500 [INFO]   [Email Verification] [OK] Found email with +12h (AM/PM swap) correction in 'Emails From Franchisees' at 2026-05-14T00:40:30Z from jane@example.com
 2026-05-13 19:40:13,501 [INFO]   [Email Verification] Correcting received time from 2026-05-13T12:40:00Z to 2026-05-14T00:40:00Z
 2026-05-13 19:40:13,700 [INFO]   [Time Correction] Corrected received_on to 05/13/2026 7:40 pm (UTC: 2026-05-14T00:40:00Z)
@@ -417,8 +417,34 @@ Case aaa111-bbb222-ccc333 assigned to team successfully.
 2026-05-13 19:40:14,704 [INFO]   Time Difference: 0:00:14 (Created - Received)
 
 
-# ===== SCENARIO 20: No Approved Items =====
+# ===== SCENARIO 20: Timezone/DST Error - Time-Corrected (+1h) =====
+# AI entered 4:11 PM instead of 5:11 PM (1-hour timezone/DST error).
+# Email verification finds email 1 hour later, corrects the time, then creates the case with the right time.
+2026-06-01 17:13:29,975 [INFO] Item 3303 status updated to 'Processing'.
+2026-06-01 17:13:29,976 [INFO] Processing store 80917...
+2026-06-01 17:13:29,976 [INFO]   Params: contact=Marcie, phone=Store, subject=Software Issue, case_type=Tango
+2026-06-01 17:13:34,532 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
+2026-06-01 17:13:44,532 [INFO]   [Email Verification] Retrying email search in ['Emails From Franchisees', 'Emails From FOMs', 'Create CRM Case']...
+2026-06-01 17:13:49,221 [INFO]   [Email Verification] Trying time-corrected search (+/-1h, +/-12h, +/-24h)...
+2026-06-01 17:13:50,100 [INFO]   [Email Verification] [OK] Found email with +1h (timezone/DST error) correction in 'Emails From Franchisees' at 2026-06-01T22:11:30Z from marcie.shaw.webster@gmail.com
+2026-06-01 17:13:50,101 [INFO]   [Email Verification] Correcting received time from 2026-06-01T21:11:00Z to 2026-06-01T22:11:00Z
+2026-06-01 17:13:50,300 [INFO]   [Time Correction] Corrected received_on to 06/01/2026 5:11 pm (UTC: 2026-06-01T22:11:00Z)
+2026-06-01 17:13:50,500 [INFO]   [Time Correction] Updated SharePoint: Dateandtime=06/01/2026, Time=5:11 pm
+2026-06-01 17:13:50,700 [INFO]   No duplicate found. Creating case...
+Found account: Shaw, Marcie (store 80917)
+Case created successfully. ID: ddd444-eee555-fff666
+Case ddd444-eee555-fff666 assigned to team successfully.
+2026-06-01 17:13:51,100 [INFO]   Note added to case.
+2026-06-01 17:13:51,500 [INFO] Item 3303 status updated to 'Processed'.
+2026-06-01 17:13:51,501 [INFO] Case created for store 80917: CAS-365227-F9K8V1 (ID: ddd444-eee555-fff666)
+2026-06-01 17:13:51,502 [INFO]   Received On: 2026-06-01T22:11:00Z
+2026-06-01 17:13:51,503 [INFO]   Created On:  2026-06-01T22:13:51Z
+2026-06-01 17:13:51,504 [INFO]   Time Difference: 0:02:51 (Created - Received)
+
+
+# ===== SCENARIO 21: No Approved Items =====
 2026-05-12 15:30:10,123 [INFO] No approved items to process.
+# (was SCENARIO 20 before timezone/DST scenario was added)
 
 
 ========================================
@@ -457,11 +483,16 @@ KEY PATTERNS TO LOOK FOR:
    - Note: Retry/Retry 2 subfolders are used by folder_monitor.py to stage emails awaiting Copilot retry
 
 7. TIME-CORRECTED EMAIL VERIFICATION (runs BEFORE case creation):
-   - "Trying time-corrected search (+/-12h, +/-24h)..." - Offset search initiated
+   - "Trying time-corrected search (+/-1h, +/-12h, +/-24h)..." - Offset search initiated
+   - Offsets tried in order: -1h, +1h, -12h, +12h, -24h, +24h
+   - "+/-1h (timezone/DST error)" - AI off by 1 hour (e.g. CDT vs CST confusion)
+   - "+/-12h (AM/PM swap)" - AI entered wrong AM/PM
+   - "+/-24h (wrong date)" - AI entered wrong date
    - "[OK] Found email with {offset} correction in '{folder}'" - Found at offset
    - "Correcting received time from {old} to {new}" - Time correction applied
    - "[Time Correction] Corrected received_on to {local} (UTC: {iso})" - received_on fixed
    - "[Time Correction] Updated SharePoint: Dateandtime={date}, Time={time}" - SharePoint updated
+   - "[NOT FOUND] No email found in ... or +/-1h/12h/24h offsets" - All offsets exhausted
    - Case is then created with the corrected time (no post-creation CRM update needed)
 
 8. DRAFT REPLY:

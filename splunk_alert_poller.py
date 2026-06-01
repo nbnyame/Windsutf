@@ -461,8 +461,8 @@ class SplunkAlertPoller:
                 last_sent = entry["last_sent"]
                 days_late = entry["days_late"]
 
-                if days_late < 3:
-                    log.info(f"  Store {store}: {days_late} day(s) late — below threshold, skipping.")
+                if days_late != 3:
+                    log.info(f"  Store {store}: {days_late} day(s) late — not exactly 3, skipping.")
                     continue
 
                 description = f"CF Late, last sent {last_sent}"

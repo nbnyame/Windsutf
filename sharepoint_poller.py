@@ -761,16 +761,18 @@ class SharePointPoller:
                     time.sleep(10)
                     log.info(f"  [Email Verification] Retrying email search in {folders}...")
             
-            # ── Time-correction search: try ±12h and ±24h offsets ──
-            # This handles AI errors: wrong AM/PM (±12h) or wrong date (±24h)
+            # ── Time-correction search: try ±1h, ±12h and ±24h offsets ──
+            # This handles AI errors: off by 1h (DST/timezone), wrong AM/PM (±12h), wrong date (±24h)
             offsets = [
+                (timedelta(hours=-1),  "-1h (timezone/DST error)"),
+                (timedelta(hours=1),   "+1h (timezone/DST error)"),
                 (timedelta(hours=-12), "-12h (AM/PM swap)"),
                 (timedelta(hours=12),  "+12h (AM/PM swap)"),
                 (timedelta(hours=-24), "-24h (wrong date)"),
                 (timedelta(hours=24),  "+24h (wrong date)"),
             ]
             
-            log.info(f"  [Email Verification] Trying time-corrected search (+/-12h, +/-24h)...")
+            log.info(f"  [Email Verification] Trying time-corrected search (+/-1h, +/-12h, +/-24h)...")
             
             for offset, offset_label in offsets:
                 corrected_dt = received_dt + offset
@@ -805,7 +807,7 @@ class SharePointPoller:
                             "folder": result["folder_name"], "msg_time": result["msg_time"], "msg_from": result["msg_from"]}
             
             # Not found at any offset
-            log.warning(f"  [Email Verification] [NOT FOUND] No email found in {folders} within +/-2 minutes of {received_datetime_str} or +/-12h/24h offsets")
+            log.warning(f"  [Email Verification] [NOT FOUND] No email found in {folders} within +/-2 minutes of {received_datetime_str} or +/-1h/12h/24h offsets")
             if check_sender:
                 log.warning(f"  [Email Verification] Expected sender: {email_address}")
             
@@ -988,37 +990,43 @@ class SharePointPoller:
                         # Add Full Message as note on the existing case
                         full_message = str(fields.get("FullMessage", "")).strip()
                         if full_message and existing.get("case_id"):
-                            try:
-                                # Use case_params received_on (already corrected if time correction happened)
-                                dt_label = ""
-                                ro = case_params.get('received_on', '')
-                                if ro:
-                                    dt_label = f" {ro}"
-                                else:
-                                    # Fallback to SharePoint columns
-                                    note_date = str(fields.get("Dateandtime", "")).strip()
-                                    note_time = str(fields.get("Time", "")).strip()
-                                    if note_date and "T" in note_date:
-                                        dt = datetime.fromisoformat(note_date.replace("Z", ""))
-                                        note_date = dt.strftime("%m/%d/%Y")
-                                    note_date = re.sub(r'\s+\d{1,2}:\d{2}:\d{2}\b', '', note_date).strip()
-                                    if note_time:
-                                        time_match = re.match(r'(\d{1,2}:\d{2}\s*[AaPp][Mm])', note_time)
-                                        if time_match:
-                                            note_time = time_match.group(1)
-                                    dt_label = f" {note_date}"
-                                    if note_time:
-                                        dt_label += f" {note_time}"
-                                note_subject = f"Increment{dt_label}"
+                            # Use case_params received_on (already corrected if time correction happened)
+                            dt_label = ""
+                            ro = case_params.get('received_on', '')
+                            if ro:
+                                dt_label = f" {ro}"
+                            else:
+                                # Fallback to SharePoint columns
+                                note_date = str(fields.get("Dateandtime", "")).strip()
+                                note_time = str(fields.get("Time", "")).strip()
+                                if note_date and "T" in note_date:
+                                    dt = datetime.fromisoformat(note_date.replace("Z", ""))
+                                    note_date = dt.strftime("%m/%d/%Y")
+                                note_date = re.sub(r'\s+\d{1,2}:\d{2}:\d{2}\b', '', note_date).strip()
+                                if note_time:
+                                    time_match = re.match(r'(\d{1,2}:\d{2}\s*[AaPp][Mm])', note_time)
+                                    if time_match:
+                                        note_time = time_match.group(1)
+                                dt_label = f" {note_date}"
+                                if note_time:
+                                    dt_label += f" {note_time}"
+                            note_subject = f"Increment{dt_label}"
 
-                                crm_client.create_note(
-                                    existing["case_id"],
-                                    text=full_message,
-                                    subject=note_subject,
-                                )
-                                log.info(f"  Increment note added to {existing['ticketnumber']}.")
-                            except Exception as e:
-                                log.warning(f"  Failed to add increment note: {e}")
+                            for note_attempt in range(3):
+                                try:
+                                    crm_client.create_note(
+                                        existing["case_id"],
+                                        text=full_message,
+                                        subject=note_subject,
+                                    )
+                                    log.info(f"  Increment note added to {existing['ticketnumber']}.")
+                                    break
+                                except Exception as e:
+                                    if note_attempt < 2:
+                                        log.warning(f"  Increment note attempt {note_attempt + 1}/3 failed, retrying in 3s: {e}")
+                                        time.sleep(3)
+                                    else:
+                                        log.warning(f"  Failed to add increment note: {e}")
 
                         # Move draft reply for increments only
                         draft_reply = fields.get("DraftReply", False)
@@ -1058,15 +1066,21 @@ class SharePointPoller:
                 # Add note from Full Message column if present
                 full_message = str(fields.get("FullMessage", "")).strip()
                 if full_message and result.get("case_id"):
-                    try:
-                        crm_client.create_note(
-                            result["case_id"],
-                            text=full_message,
-                            subject="Full Message",
-                        )
-                        log.info(f"  Note added to case.")
-                    except Exception as e:
-                        log.warning(f"  Failed to add note: {e}")
+                    for note_attempt in range(3):
+                        try:
+                            crm_client.create_note(
+                                result["case_id"],
+                                text=full_message,
+                                subject="Full Message",
+                            )
+                            log.info(f"  Note added to case.")
+                            break
+                        except Exception as e:
+                            if note_attempt < 2:
+                                log.warning(f"  Note attempt {note_attempt + 1}/3 failed, retrying in 3s: {e}")
+                                time.sleep(3)
+                            else:
+                                log.warning(f"  Failed to add note: {e}")
 
                 # Move draft reply to shared mailbox if DraftReply is True
                 draft_reply = fields.get("DraftReply", False)
