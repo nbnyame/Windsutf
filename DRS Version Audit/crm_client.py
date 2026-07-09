@@ -6,15 +6,11 @@ Handles authentication and API calls to Microsoft Dynamics 365.
 import os
 import re
 import json
-import time
-import logging
 import requests
 from datetime import datetime, timedelta, timezone
 from urllib.parse import urlparse, urljoin
 from html.parser import HTMLParser
 from dotenv import load_dotenv
-
-log = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -172,63 +168,29 @@ class Dynamics365Client:
             headers["Content-Type"] = "application/json"
         return headers
 
-    def _request(self, method, endpoint, data=None, params=None, _retries=3, _backoff=10):
-        """Make an authenticated request to the CRM API.
-
-        Automatically retries up to _retries times (default 3) with _backoff seconds
-        (default 10) between attempts on connection errors, timeouts, and 5xx responses.
-        """
+    def _request(self, method, endpoint, data=None, params=None):
+        """Make an authenticated request to the CRM API."""
         if not self.session:
             self.authenticate()
         url = f"{self.api_base}/{endpoint}"
         headers = self._odata_headers(method)
+        response = self.session.request(
+            method, url, headers=headers, json=data, params=params, timeout=30,
+        )
 
-        last_exc = None
-        for attempt in range(1, _retries + 1):
-            try:
-                response = self.session.request(
-                    method, url, headers=headers, json=data, params=params, timeout=30,
-                )
+        if response.status_code == 401:
+            # Re-authenticate and retry
+            self.authenticate()
+            response = self.session.request(
+                method, url, headers=headers, json=data, params=params, timeout=30,
+            )
 
-                if response.status_code == 401:
-                    # Re-authenticate and retry once for expired sessions
-                    self.authenticate()
-                    response = self.session.request(
-                        method, url, headers=headers, json=data, params=params, timeout=30,
-                    )
+        if response.status_code >= 400:
+            raise requests.HTTPError(
+                f"CRM API error {response.status_code}: {response.text}", response=response
+            )
 
-                if response.status_code >= 500 and attempt < _retries:
-                    log.warning(
-                        f"  [CRM] Server error {response.status_code} on attempt "
-                        f"{attempt}/{_retries}, retrying in {_backoff}s..."
-                    )
-                    time.sleep(_backoff)
-                    last_exc = requests.HTTPError(
-                        f"CRM API error {response.status_code}: {response.text}",
-                        response=response,
-                    )
-                    continue
-
-                if response.status_code >= 400:
-                    raise requests.HTTPError(
-                        f"CRM API error {response.status_code}: {response.text}",
-                        response=response,
-                    )
-
-                return response
-
-            except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
-                if attempt < _retries:
-                    log.warning(
-                        f"  [CRM] Network error on attempt {attempt}/{_retries}, "
-                        f"retrying in {_backoff}s: {e}"
-                    )
-                    time.sleep(_backoff)
-                    last_exc = e
-                else:
-                    raise
-
-        raise last_exc
+        return response
 
     # ─── Lookup Maps ────────────────────────────────────────────────────
 

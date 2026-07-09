@@ -5,8 +5,8 @@
   "voice_to_text": {
     "folders": ["Calls Entered"],
     "parent_folder": "Inbox",
-    "check_sender": false,
-    "description": "Voice to Text / Phone calls - searches by time only"
+    "check_sender": true,
+    "description": "Voice to Text / Phone calls - searches by time AND sender email address"
   },
   
   "email": {
@@ -34,7 +34,7 @@
     "folders": ["Splunk Alerts"],
     "parent_folder": "INTERNAL REQUESTS",
     "parent_location": "Inbox",
-    "check_sender": false,
-    "description": "Splunk alerts - subfolder of INTERNAL REQUESTS, searches by time only"
+    "check_sender": true,
+    "description": "Splunk alerts - subfolder of INTERNAL REQUESTS, searches by time AND sender email address"
   }
 }

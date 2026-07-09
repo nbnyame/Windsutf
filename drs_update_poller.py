@@ -1,30 +1,35 @@
 """
-SharePoint "Splunk DRS Update" → Dynamics 365 CRM DRS Version Updater
+Splunk DRS Update Email Monitor -> Dynamics 365 CRM DRS Version Updater
 
-Polls the "Splunk DRS Update" SharePoint list for items with Status = "Pending".
-For each pending item, looks up the store account in CRM and updates the
-DRS Version field in the Hardware, Software & Networking info section.
+Monitors the shared mailbox folder:
+  Inbox -> INTERNAL REQUESTS -> Splunk Alerts -> Automate DRS Updates
 
-Environment variables (add to Dynamics365CRM/.env):
-    AZURE_TENANT_ID          — Azure AD tenant ID (shared with sharepoint_poller)
-    AZURE_CLIENT_ID          — Azure AD app client ID
-    AZURE_CLIENT_SECRET      — Azure AD app client secret
-    DRS_LIST_NAME            — SharePoint list name (default: "Splunk DRS Update")
-    DRS_SHAREPOINT_SITE_PATH — SharePoint site path (default: /sites/MarketingTemp)
-    CRM_DRS_VERSION_FIELD    — CRM API field name for DRS Version (default: win_drsversion)
-    DRS_POLL_INTERVAL        — Poll interval in seconds (default: 60)
+For each unread email, parses the store number and DRS version from the subject:
+  "{store} - Updated to DRS {version}, please update CRM"
 
-Run --discover-fields <store_number> to inspect account fields and confirm
-the correct CRM field name for DRS Version.
+Updates the DRS Version field on the CRM account, then moves the email to:
+  Inbox -> INTERNAL REQUESTS -> Splunk Alerts
+
+On failure: marks the email as read and leaves it in the folder for manual review.
+
+Required environment variables (Dynamics365CRM/.env):
+    AZURE_TENANT_ID       - Azure AD tenant ID
+    AZURE_CLIENT_ID       - Azure AD app client ID
+    AZURE_CLIENT_SECRET   - Azure AD app client secret
+    DRS_MAILBOX           - Shared mailbox address (default: supportcenter@winmarkcorporation.com)
+    CRM_DRS_VERSION_FIELD - CRM field name for DRS Version (default: win_drsversion1)
+    DRS_POLL_INTERVAL     - Poll interval in seconds (default: 60)
+
+NOTE: The Azure AD app registration needs these Microsoft Graph application permissions:
+    Mail.Read, Mail.ReadWrite  (to access the shared mailbox)
 """
 
 import os
+import re
 import sys
 import time
-import json
 import logging
 import requests
-from datetime import datetime
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -38,23 +43,24 @@ TENANT_ID = os.getenv("AZURE_TENANT_ID", "")
 CLIENT_ID = os.getenv("AZURE_CLIENT_ID", "")
 CLIENT_SECRET = os.getenv("AZURE_CLIENT_SECRET", "")
 
-# SharePoint
-SHAREPOINT_HOSTNAME = "winmarkcorporation605.sharepoint.com"
-SHAREPOINT_SITE_PATH = os.getenv("DRS_SHAREPOINT_SITE_PATH", "/sites/MarketingTemp")
-SHAREPOINT_LIST_NAME = os.getenv("DRS_LIST_NAME", "Splunk DRS Update")
+# Shared mailbox to monitor
+MAILBOX = os.getenv("DRS_MAILBOX", "supportcenter@winmarkcorporation.com")
+
+# Folder paths (ordered list of display names to navigate)
+MONITOR_FOLDER_PATH   = ["Inbox", "INTERNAL REQUESTS", "Splunk Alerts", "Automate DRS Updates"]
+PROCESSED_FOLDER_PATH = ["Inbox", "INTERNAL REQUESTS", "Splunk Alerts"]
 
 # CRM account field for DRS Version (OptionSet / dropdown)
-# Run: python drs_update_poller.py --discover-fields <store_number>
-# to inspect all fields on an account and confirm this name.
 CRM_DRS_VERSION_FIELD = os.getenv("CRM_DRS_VERSION_FIELD", "win_drsversion1")
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
-# SharePoint column internal names for the "Splunk DRS Update" list.
-# Override these env vars if your list uses different column names.
-SP_FIELD_STORE_NUMBER = os.getenv("DRS_SP_STORE_FIELD", "StoreNumber")
-SP_FIELD_DRS_VERSION  = os.getenv("DRS_SP_VERSION_FIELD", "DRSVersion")
-SP_FIELD_STATUS       = os.getenv("DRS_SP_STATUS_FIELD", "Status")
+# Regex to parse email subject:
+# "11733 - Updated to DRS 8.9.7 GENERAL (322), please update CRM"
+SUBJECT_PATTERN = re.compile(
+    r'^(\d+)\s*-\s*Updated to DRS\s+(.+?),\s*please update CRM',
+    re.IGNORECASE,
+)
 
 # ─── Logging ─────────────────────────────────────────────────────────────
 
@@ -72,19 +78,20 @@ logging.basicConfig(
 log = logging.getLogger("drs_update_poller")
 
 
-class DrsUpdatePoller:
+class DrsEmailPoller:
     """
-    Polls SharePoint "Splunk DRS Update" list and updates CRM account
-    DRS Version field for each Pending item.
+    Monitors a shared mailbox folder for Splunk DRS update alert emails
+    and updates the corresponding CRM account DRS Version field.
     """
 
     def __init__(self):
         self._validate_config()
         self.token = None
         self.token_expires = 0
-        self.site_id = None
-        self.list_id = None
-        self._drs_option_map = None   # label (lower) → CRM int code
+        self._monitor_folder_id = None
+        self._processed_folder_id = None
+        self._inbox_folder_id = "inbox"  # Well-known name, always valid
+        self._drs_option_map = None
 
     def _validate_config(self):
         missing = []
@@ -128,81 +135,98 @@ class DrsUpdatePoller:
             "Content-Type": "application/json",
         }
 
-    # ─── SharePoint Discovery ────────────────────────────────────────────
+    # ─── Folder Navigation ───────────────────────────────────────────────
 
-    def _discover_site(self):
-        if self.site_id:
-            return self.site_id
-        url = f"{GRAPH_BASE}/sites/{SHAREPOINT_HOSTNAME}:{SHAREPOINT_SITE_PATH}"
-        resp = requests.get(url, headers=self._graph_headers(), timeout=30)
-        resp.raise_for_status()
-        self.site_id = resp.json()["id"]
-        log.info(f"SharePoint site ID: {self.site_id}")
-        return self.site_id
-
-    def _discover_list(self):
-        if self.list_id:
-            return self.list_id
-        site_id = self._discover_site()
-        url = f"{GRAPH_BASE}/sites/{site_id}/lists"
-        resp = requests.get(url, headers=self._graph_headers(), timeout=30)
-        resp.raise_for_status()
-        for lst in resp.json().get("value", []):
-            if lst["displayName"].lower() == SHAREPOINT_LIST_NAME.lower():
-                self.list_id = lst["id"]
-                log.info(f"List '{SHAREPOINT_LIST_NAME}' ID: {self.list_id}")
-                return self.list_id
-        available = [l["displayName"] for l in resp.json().get("value", [])]
-        raise ValueError(
-            f"List '{SHAREPOINT_LIST_NAME}' not found on site '{SHAREPOINT_SITE_PATH}'.\n"
-            f"Available lists: {available}\n"
-            f"Set DRS_LIST_NAME and/or DRS_SHAREPOINT_SITE_PATH in your .env to override."
-        )
-
-    # ─── Read / Update Items ─────────────────────────────────────────────
-
-    def get_pending_items(self):
-        """Fetch all items from SharePoint where Status == 'Pending'."""
-        site_id = self._discover_site()
-        list_id = self._discover_list()
-
-        # Paginate through all items and filter client-side
-        all_pending = []
-        url = (
-            f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items"
-            f"?$expand=fields&$top=200"
-        )
-        while url:
+    def _navigate_to_folder(self, folder_path):
+        """
+        Walk a folder path like ['Inbox', 'INTERNAL REQUESTS', 'Splunk Alerts'].
+        Returns the Graph API folder ID of the deepest folder.
+        """
+        current_id = "inbox"  # Well-known name for Inbox
+        for folder_name in folder_path[1:]:  # Inbox is the well-known root
+            url = (
+                f"{GRAPH_BASE}/users/{MAILBOX}/mailFolders/{current_id}/childFolders"
+                f"?$select=id,displayName&$top=100"
+            )
             resp = requests.get(url, headers=self._graph_headers(), timeout=30)
             resp.raise_for_status()
-            data = resp.json()
-            for item in data.get("value", []):
-                status = str(item.get("fields", {}).get(SP_FIELD_STATUS, "")).strip().lower()
-                if status == "pending":
-                    all_pending.append(item)
-            url = data.get("@odata.nextLink")
-        return all_pending
+            children = resp.json().get("value", [])
+            match = next(
+                (f for f in children if f["displayName"].lower() == folder_name.lower()),
+                None,
+            )
+            if not match:
+                available = [f["displayName"] for f in children]
+                raise ValueError(
+                    f"Folder '{folder_name}' not found. "
+                    f"Available subfolders: {available}"
+                )
+            current_id = match["id"]
+            log.info(f"Found folder '{folder_name}' (ID: {current_id})")
+        return current_id
 
-    def update_item_status(self, item_id, status):
-        """Update the Status column of a SharePoint list item."""
-        site_id = self._discover_site()
-        list_id = self._discover_list()
-        url = f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items/{item_id}/fields"
-        resp = requests.patch(
-            url, headers=self._graph_headers(),
-            json={SP_FIELD_STATUS: status}, timeout=30
+    def _discover_folders(self):
+        """Resolve and cache the monitor and processed folder IDs."""
+        if self._monitor_folder_id and self._processed_folder_id:
+            return
+        log.info(f"Locating monitor folder:   {' -> '.join(MONITOR_FOLDER_PATH)}")
+        self._monitor_folder_id = self._navigate_to_folder(MONITOR_FOLDER_PATH)
+        log.info(f"Locating processed folder: {' -> '.join(PROCESSED_FOLDER_PATH)}")
+        self._processed_folder_id = self._navigate_to_folder(PROCESSED_FOLDER_PATH)
+        log.info("Folder discovery complete.")
+
+    # ─── Email Operations ────────────────────────────────────────────────
+
+    def get_unread_emails(self):
+        """Fetch all unread emails from the monitor folder, oldest first."""
+        self._discover_folders()
+        url = (
+            f"{GRAPH_BASE}/users/{MAILBOX}"
+            f"/mailFolders/{self._monitor_folder_id}/messages"
+            f"?$filter=isRead eq false"
+            f"&$select=id,subject,receivedDateTime,from"
+            f"&$orderby=receivedDateTime asc"
+            f"&$top=50"
         )
-        resp.raise_for_status()
-        log.info(f"Item {item_id} status updated to '{status}'.")
-
-    def list_item_fields(self, item_id):
-        """Return raw fields dict for a single list item (discovery helper)."""
-        site_id = self._discover_site()
-        list_id = self._discover_list()
-        url = f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items/{item_id}?$expand=fields"
         resp = requests.get(url, headers=self._graph_headers(), timeout=30)
         resp.raise_for_status()
-        return resp.json().get("fields", {})
+        return resp.json().get("value", [])
+
+    def move_email(self, message_id, destination_folder_id):
+        """Move a message to the specified folder."""
+        url = f"{GRAPH_BASE}/users/{MAILBOX}/messages/{message_id}/move"
+        resp = requests.post(
+            url,
+            headers=self._graph_headers(),
+            json={"destinationId": destination_folder_id},
+            timeout=30,
+        )
+        resp.raise_for_status()
+
+    def mark_as_read(self, message_id):
+        """Mark a message as read (leaves it in place)."""
+        url = f"{GRAPH_BASE}/users/{MAILBOX}/messages/{message_id}"
+        resp = requests.patch(
+            url,
+            headers=self._graph_headers(),
+            json={"isRead": True},
+            timeout=30,
+        )
+        resp.raise_for_status()
+
+    # ─── Email Parsing ───────────────────────────────────────────────────
+
+    @staticmethod
+    def parse_subject(subject):
+        """
+        Parse store number and DRS version from the email subject.
+        Expected: "{store} - Updated to DRS {version}, please update CRM"
+        Returns: (store_number, drs_version) or (None, None) if no match.
+        """
+        match = SUBJECT_PATTERN.match(str(subject).strip())
+        if not match:
+            return None, None
+        return match.group(1).strip(), match.group(2).strip()
 
     # ─── CRM DRS Version Option Map ──────────────────────────────────────
 
@@ -290,61 +314,46 @@ class DrsUpdatePoller:
 
     # ─── Main Processing ─────────────────────────────────────────────────
 
-    def process_pending_items(self, crm_client):
-        """Fetch Pending items and update the DRS Version on the CRM account."""
-        items = self.get_pending_items()
-        if not items:
+    def process_emails(self, crm_client):
+        """Process all unread DRS update emails in the monitor folder."""
+        emails = self.get_unread_emails()
+        if not emails:
             return 0
 
-        log.info(f"Found {len(items)} pending item(s) to process.")
+        log.info(f"Found {len(emails)} unread email(s) to process.")
         processed = 0
 
-        for item in items:
-            item_id = item["id"]
-            fields = item.get("fields", {})
+        for email in emails:
+            message_id = email["id"]
+            subject = email.get("subject", "")
+            received = email.get("receivedDateTime", "")
+            sender = email.get("from", {}).get("emailAddress", {}).get("address", "")
 
-            # Extract store number
-            raw_store = fields.get(SP_FIELD_STORE_NUMBER, "")
-            try:
-                store_number = str(int(float(raw_store)))
-            except (ValueError, TypeError):
-                store_number = str(raw_store).strip()
+            store_number, drs_version_label = self.parse_subject(subject)
 
-            # Extract DRS version
-            drs_version_label = str(fields.get(SP_FIELD_DRS_VERSION, "")).strip()
-
-            if not store_number:
-                log.warning(f"Item {item_id}: missing store number — skipping.")
-                continue
-            if not drs_version_label:
+            if not store_number or not drs_version_label:
                 log.warning(
-                    f"Item {item_id} (store {store_number}): "
-                    f"missing DRS version — skipping."
+                    f"Skipping unrecognized email: '{subject}' "
+                    f"(from {sender}) — marking as read."
                 )
+                self.mark_as_read(message_id)
                 continue
 
             log.info(
-                f"Processing item {item_id}: "
-                f"store={store_number}, DRS version='{drs_version_label}'"
+                f"Processing: store={store_number}, "
+                f"DRS version='{drs_version_label}' (received {received})"
             )
 
             try:
-                # Mark as Processing so we don't pick it up again on next poll
-                self.update_item_status(item_id, "Processing")
-
                 # Look up the CRM account by store number
                 account = crm_client.lookup_account_by_store(store_number)
                 account_id = account["accountid"]
                 account_name = account.get("name", store_number)
                 log.info(f"Found CRM account: {account_name} (ID: {account_id})")
 
-                # Resolve the DRS version label to a CRM option code
-                drs_version_code = self._resolve_drs_version(
-                    drs_version_label, crm_client
-                )
-                log.info(
-                    f"Resolved DRS version '{drs_version_label}' -> code {drs_version_code}"
-                )
+                # Resolve the DRS version label to a CRM OptionSet code
+                drs_version_code = self._resolve_drs_version(drs_version_label, crm_client)
+                log.info(f"Resolved '{drs_version_label}' -> code {drs_version_code}")
 
                 # Update the DRS Version field on the account
                 crm_client.update_account(
@@ -356,19 +365,19 @@ class DrsUpdatePoller:
                     f"DRS Version updated to '{drs_version_label}'."
                 )
 
-                # Mark SharePoint item as Success
-                self.update_item_status(item_id, "Success")
+                # Mark as read then move to the processed folder
+                self.mark_as_read(message_id)
+                self.move_email(message_id, self._processed_folder_id)
+                log.info(f"Email marked as read and moved to '{PROCESSED_FOLDER_PATH[-1]}'.")
                 processed += 1
 
             except Exception as e:
-                log.error(
-                    f"Failed to process item {item_id} "
-                    f"(store {store_number}): {e}"
-                )
+                log.error(f"Failed to process email for store {store_number}: {e}")
                 try:
-                    self.update_item_status(item_id, "Failed")
+                    self.move_email(message_id, self._inbox_folder_id)
+                    log.info("Email left unread and moved to Inbox for manual review.")
                 except Exception:
-                    log.error(f"Could not update status for item {item_id}")
+                    log.error("Could not move failed email to Inbox.")
 
         return processed
 
@@ -377,22 +386,22 @@ class DrsUpdatePoller:
         from crm_client import Dynamics365Client
 
         log.info("=" * 60)
-        log.info("Splunk DRS Update → CRM DRS Version Poller starting")
-        log.info(f"Poll interval: {POLL_INTERVAL}s")
-        log.info(f"SharePoint list: {SHAREPOINT_LIST_NAME}")
-        log.info(f"CRM DRS Version field: {CRM_DRS_VERSION_FIELD}")
+        log.info("Splunk DRS Email Monitor -> CRM DRS Version Updater")
+        log.info(f"Mailbox:        {MAILBOX}")
+        log.info(f"Monitor folder: {' -> '.join(MONITOR_FOLDER_PATH)}")
+        log.info(f"Processed dest: {' -> '.join(PROCESSED_FOLDER_PATH)}")
+        log.info(f"CRM field:      {CRM_DRS_VERSION_FIELD}")
+        log.info(f"Poll interval:  {POLL_INTERVAL}s")
         log.info("=" * 60)
 
         crm = Dynamics365Client()
         crm.authenticate()
         last_auth = time.time()
 
-        # Discover SharePoint site/list and pre-load option map
-        self._discover_site()
-        self._discover_list()
+        self._discover_folders()
         self._load_drs_option_map(crm)
 
-        log.info("Ready. Polling for pending items...\n")
+        log.info("Ready. Polling for new DRS update emails...\n")
 
         while True:
             try:
@@ -401,7 +410,7 @@ class DrsUpdatePoller:
                     crm.authenticate()
                     last_auth = time.time()
 
-                count = self.process_pending_items(crm)
+                count = self.process_emails(crm)
                 if count:
                     log.info(f"Processed {count} DRS update(s) this cycle.\n")
 
@@ -420,81 +429,52 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="SharePoint 'Splunk DRS Update' → CRM DRS Version Poller",
+        description="Splunk DRS Email Monitor -> CRM DRS Version Updater",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python drs_update_poller.py                        Start the continuous poller
-  python drs_update_poller.py --once                 Run one cycle and exit
-  python drs_update_poller.py --test-connection      Verify SP + CRM connections
-  python drs_update_poller.py --discover-fields 1234 Inspect account fields for store 1234
-  python drs_update_poller.py --list-drs-versions    List available DRS Version options in CRM
-  python drs_update_poller.py --list-pending         Show current Pending items in SharePoint
+  python drs_update_poller.py                       Start the continuous poller
+  python drs_update_poller.py --once                Run one cycle and exit
+  python drs_update_poller.py --test-connection     Verify mailbox + CRM connections
+  python drs_update_poller.py --list-drs-versions   List available DRS Version options in CRM
+  python drs_update_poller.py --list-emails         Show unread emails in the monitor folder
         """,
     )
     parser.add_argument("--once", action="store_true",
-                        help="Run one poll cycle and exit")
+                        help="Run one cycle and exit")
     parser.add_argument("--interval", type=int, default=None,
                         help="Override poll interval in seconds")
     parser.add_argument("--test-connection", action="store_true",
-                        help="Test SharePoint and CRM connections, then exit")
-    parser.add_argument("--discover-fields", metavar="STORE_NUMBER",
-                        help="Dump all CRM account fields for the given store number")
+                        help="Test mailbox and CRM connections, then exit")
     parser.add_argument("--list-drs-versions", action="store_true",
                         help="List available DRS Version options from CRM metadata")
-    parser.add_argument("--list-pending", action="store_true",
-                        help="List current Pending items in the SharePoint list")
+    parser.add_argument("--list-emails", action="store_true",
+                        help="List unread emails currently in the monitor folder")
     args = parser.parse_args()
 
     if args.interval:
         POLL_INTERVAL = args.interval
 
-    poller = DrsUpdatePoller()
+    poller = DrsEmailPoller()
 
     if args.test_connection:
-        log.info("Testing SharePoint connection...")
-        poller._discover_site()
-        poller._discover_list()
-        items = poller.get_pending_items()
-        log.info(f"SharePoint OK. {len(items)} Pending item(s) found.")
+        log.info("Testing mailbox access...")
+        poller._discover_folders()
+        emails = poller.get_unread_emails()
+        log.info(f"Mailbox OK. {len(emails)} unread email(s) in monitor folder.")
 
         log.info("Testing CRM connection...")
         from crm_client import Dynamics365Client
         crm = Dynamics365Client()
         crm.authenticate()
-        log.info("CRM connection OK.")
+        log.info("CRM OK.")
         log.info("All connections verified!")
-
-    elif args.discover_fields:
-        from crm_client import Dynamics365Client
-        crm = Dynamics365Client()
-        crm.authenticate()
-        account = crm.lookup_account_by_store(args.discover_fields)
-        account_id = account["accountid"]
-        log.info(
-            f"Account: {account.get('name')} (store {args.discover_fields})\n"
-            f"Fetching all fields..."
-        )
-        all_fields = crm.list_account_fields(account_id)
-        # Filter to custom/win_ fields and non-null values for readability
-        print("\n--- All non-null fields on this account ---")
-        for k, v in sorted(all_fields.items()):
-            if v is not None and not k.startswith("@"):
-                print(f"  {k}: {v}")
-        print("\n--- Fields with 'drs' in the name ---")
-        for k, v in sorted(all_fields.items()):
-            if "drs" in k.lower():
-                print(f"  {k}: {v}")
-        print(f"\nSet CRM_DRS_VERSION_FIELD=<field_name> in your .env once identified.")
 
     elif args.list_drs_versions:
         from crm_client import Dynamics365Client
         crm = Dynamics365Client()
         crm.authenticate()
-        log.info(
-            f"Fetching DRS Version options for field '{CRM_DRS_VERSION_FIELD}' "
-            f"on 'account' entity..."
-        )
+        log.info(f"Fetching DRS Version options for field '{CRM_DRS_VERSION_FIELD}'...")
         try:
             options = crm.get_option_set_values("account", CRM_DRS_VERSION_FIELD)
             print(f"\nAvailable DRS Version options ({len(options)}):")
@@ -502,35 +482,28 @@ Examples:
                 print(f"  [{code}] {label}")
         except Exception as e:
             print(f"Error: {e}")
-            print(
-                f"\nThe field '{CRM_DRS_VERSION_FIELD}' may not exist or may not be a "
-                f"PickList type. Run --discover-fields <store> to find the correct field name."
-            )
 
-    elif args.list_pending:
-        poller._discover_site()
-        poller._discover_list()
-        items = poller.get_pending_items()
-        if not items:
-            print("No Pending items found.")
+    elif args.list_emails:
+        poller._discover_folders()
+        emails = poller.get_unread_emails()
+        if not emails:
+            print("No unread emails in the monitor folder.")
         else:
-            print(f"\n{len(items)} Pending item(s):\n")
-            for item in items:
-                f = item.get("fields", {})
+            print(f"\n{len(emails)} unread email(s):\n")
+            for e in emails:
+                store, version = DrsEmailPoller.parse_subject(e.get("subject", ""))
                 print(
-                    f"  ID={item['id']}  "
-                    f"Store={f.get(SP_FIELD_STORE_NUMBER, '?')}  "
-                    f"DRS Version={f.get(SP_FIELD_DRS_VERSION, '?')}  "
-                    f"Status={f.get(SP_FIELD_STATUS, '?')}"
+                    f"  [{e.get('receivedDateTime', '')}]"
+                    f"  Store={store or '?'}  Version={version or '?'}"
+                    f"\n    Subject: {e.get('subject', '')}"
                 )
 
     elif args.once:
         from crm_client import Dynamics365Client
         crm = Dynamics365Client()
         crm.authenticate()
-        poller._discover_site()
-        poller._discover_list()
-        count = poller.process_pending_items(crm)
+        poller._discover_folders()
+        count = poller.process_emails(crm)
         log.info(f"Done. Processed {count} DRS update(s).")
 
     else:

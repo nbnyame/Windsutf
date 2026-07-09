@@ -413,6 +413,8 @@ class SplunkAlertPoller:
             return result
         except ValueError as e:
             log.error(f"  Store {store}: account error — {e}")
+            if "inactive" in str(e).lower() or "closed" in str(e).lower():
+                return "inactive"
             return None
         except Exception as e:
             log.error(f"  Store {store}: failed to create case — {e}")
@@ -473,10 +475,10 @@ class SplunkAlertPoller:
                     continue
 
                 result = self._create_case(crm, store, description, "cf late", "Internal", received_on, subject="splunk - server issue", origin=100000001)
-                if result:
+                if result and result != "inactive":
                     log.info(f"  Store {store}: created {result['ticketnumber']} (ID: {result['case_id']})")
                     cases_created += 1
-                else:
+                elif result is None:
                     cases_failed += 1
 
             dest_id  = fallback_dest_id if (cases_failed and fallback_dest_id) else cf_late_dest_id
@@ -505,10 +507,10 @@ class SplunkAlertPoller:
                     continue
 
                 result = self._create_case(crm, store, description, "non-start point", "Splunk", received_on, subject="splunk - update fixit", origin=100000002)
-                if result:
+                if result and result != "inactive":
                     log.info(f"  Store {store}: created {result['ticketnumber']} (ID: {result['case_id']})")
                     cases_created += 1
-                else:
+                elif result is None:
                     cases_failed += 1
 
             dest_id   = fallback_dest_id if (cases_failed and fallback_dest_id) else non_start_dest_id

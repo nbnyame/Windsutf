@@ -35,6 +35,71 @@ DRAFT_TARGET_MAILBOX = os.getenv("DRAFT_TARGET_MAILBOX", "supportcenter@winmarkc
 
 GRAPH_BASE = "https://graph.microsoft.com/v1.0"
 
+# Linked subjects for increment detection.
+# Each link connects two "sides"; a side is (subject, case_type) where
+# case_type may be None (matches any case type).  If a new case matches one
+# side and an active (or resolved-today) case for the same store matches the
+# other side, the new case is treated as an increment of the existing case.
+LINKED_SUBJECTS = [
+    # Inventory Issue (any case type) ↔ Question + Inventory
+    (("inventory issue", None), ("question", "inventory")),
+
+    # Appointment (any case type) ↔ Question (any case type)
+    (("appointment", None), ("question", None)),
+
+    # Appointment ↔ Hardware Issue — shared case types: POS, Server, Pole Display
+    (("appointment", "pos"),          ("hardware issue", "pos")),
+    (("appointment", "server"),       ("hardware issue", "server")),
+    (("appointment", "pole display"), ("hardware issue", "pole display")),
+
+    # Appointment + Internet/Firewall/CDE ↔ Internet/Network Issue + Firewall
+    (("appointment", "internet/firewall/cde"), ("internet/network issue", "firewall")),
+
+    # Appointment + Ingenico ↔ Internet/Network Issue + CCT/CDE
+    (("appointment", "ingenico"), ("internet/network issue", "cct/cde")),
+
+    # Hardware Issue + POS ↔ Internet/Network Issue + CCT/CDE
+    (("hardware issue", "pos"), ("internet/network issue", "cct/cde")),
+
+    # Hardware Issue + Cash Drawer ↔ Printer + Receipt
+    (("hardware issue", "cash drawer"), ("printer", "receipt")),
+
+    # Hardware Issue + POS/Server ↔ DRS Access Issue (any case type)
+    (("hardware issue", "pos"),    ("drs access issue", None)),
+    (("hardware issue", "server"), ("drs access issue", None)),
+
+    # Hardware Issue + POS/Server ↔ Software Issue + Software Update
+    (("hardware issue", "pos"),    ("software issue", "software update")),
+    (("hardware issue", "server"), ("software issue", "software update")),
+
+    # Hardware Issue + POS/Server ↔ Software Issue + General DRS Issue
+    (("hardware issue", "pos"),    ("software issue", "general drs issue")),
+    (("hardware issue", "server"), ("software issue", "general drs issue")),
+
+    # DRS Access Issue (any case type) ↔ Software Issue + Software Update / General DRS Issue
+    (("drs access issue", None), ("software issue", "software update")),
+    (("drs access issue", None), ("software issue", "general drs issue")),
+
+    # Hardware Issue + POS ↔ Software Issue + Windows Issue
+    (("hardware issue", "pos"), ("software issue", "windows issue")),
+
+    # Winmark Connect + Issues/Questions ↔ Reports Issue + Reg/Day/Month/Year
+    (("winmark connect", "issues"),    ("reports issue", "reg/day/month/year")),
+    (("winmark connect", "questions"), ("reports issue", "reg/day/month/year")),
+
+    # Winmark Connect + Issues/Questions ↔ Reports Issue + Other
+    (("winmark connect", "issues"),    ("reports issue", "other")),
+    (("winmark connect", "questions"), ("reports issue", "other")),
+
+    # Network/DRS/Dayclose outages often share a root cause (all case types)
+    (("internet/network issue", None), ("drs access issue", None)),
+    (("internet/network issue", None), ("dayclose issue", None)),
+    (("drs access issue", None),       ("dayclose issue", None)),
+
+    # Reports Issue (any case type) ↔ Question + Report
+    (("reports issue", None), ("question", "report")),
+]
+
 # ─── Logging ─────────────────────────────────────────────────────────────
 
 logging.basicConfig(
@@ -177,8 +242,14 @@ class SharePointPoller:
         site_id = self._discover_site()
         list_id = self._discover_list()
         url = f"{GRAPH_BASE}/sites/{site_id}/lists/{list_id}/items/{item_id}/fields"
-        resp = requests.patch(url, headers=self._graph_headers(),
-                              json=field_values, timeout=30)
+        for attempt in range(3):
+            resp = requests.patch(url, headers=self._graph_headers(),
+                                  json=field_values, timeout=30)
+            if resp.status_code < 500:
+                resp.raise_for_status()
+                return
+            if attempt < 2:
+                time.sleep(3)
         resp.raise_for_status()
 
     def update_item_status(self, item_id, status, error_msg=None):
@@ -311,21 +382,20 @@ class SharePointPoller:
 
     # ─── Draft Email Management ─────────────────────────────────────────
 
-    def move_draft_to_shared(self, recipient_email, retry_delay=10):
+    def move_draft_to_shared(self, recipient_email, retry_delay=10, max_attempts=7):
         """
         Find a draft in the source mailbox addressed to recipient_email
         and move it to the Drafts folder of the shared mailbox.
         
-        If no draft is found on first attempt, waits retry_delay seconds and tries once more.
-        This handles cases where the draft is created shortly after the case.
+        Retries up to max_attempts times (default 7: 1 initial + 6 retries),
+        waiting retry_delay seconds between each attempt (default 10s, 60s max).
 
         Returns the moved message ID, or None if no matching draft found.
         """
         headers = self._graph_headers()
         target_email = recipient_email.strip().lower()
         
-        # Try up to 2 times: immediate, then after delay
-        for attempt in range(2):
+        for attempt in range(max_attempts):
             matched_msg = None
             total_drafts_checked = 0
 
@@ -358,20 +428,20 @@ class SharePointPoller:
 
             if matched_msg:
                 break  # Found it, proceed to move
-            
-            # If not found and this is first attempt, wait and retry
-            if attempt == 0:
+
+            if attempt < max_attempts - 1:
                 log.info(
-                    f"  Draft not found on first check (searched {total_drafts_checked} draft(s)). "
-                    f"Waiting {retry_delay} seconds for draft to be created..."
+                    f"  Draft not found (attempt {attempt + 1}/{max_attempts}, "
+                    f"searched {total_drafts_checked} draft(s)). "
+                    f"Waiting {retry_delay}s before retry..."
                 )
                 time.sleep(retry_delay)
                 log.info(f"  Retrying draft search for '{recipient_email}'...")
             else:
-                # Second attempt failed
                 log.warning(
-                    f"  No draft found in {DRAFT_SOURCE_MAILBOX} "
-                    f"addressed to '{recipient_email}' after retry. Searched {total_drafts_checked} draft(s)."
+                    f"  No draft found in {DRAFT_SOURCE_MAILBOX} addressed to '{recipient_email}' "
+                    f"after {max_attempts} attempts ({(max_attempts - 1) * retry_delay}s). "
+                    f"Searched {total_drafts_checked} draft(s) on final attempt."
                 )
                 return None
 
@@ -605,7 +675,11 @@ class SharePointPoller:
 
     def _maybe_narrow_result(self, result, config_key, base_dt, folders, check_sender,
                               email_address, parent_folder, parent_location, headers):
-        """If multiple emails found for a time-only origin, narrow the window to ±1 min."""
+        """If multiple emails found for a time-only origin, narrow the window to ±1 min.
+
+        Maintains the same priority search order as the main verification loop:
+        Create CRM Case -> Retry -> Retry 2 -> origin-specific -> Inbox.
+        """
         if config_key in {"voice_to_text", "internal", "splunk"} and result.get("match_count", 1) > 1:
             log.info(
                 f"  [Email Verification] {result['match_count']} emails in ±2 min window, "
@@ -613,10 +687,41 @@ class SharePointPoller:
             )
             narrow_start = (base_dt - timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
             narrow_end   = (base_dt + timedelta(minutes=1)).strftime("%Y-%m-%dT%H:%M:%SZ")
-            narrow_result = self._search_email_in_folders(
-                folders, check_sender, email_address, narrow_start, narrow_end,
-                parent_folder, parent_location, headers
+
+            # Priority 1: Create CRM Case
+            narrow_result = self._search_subfolder(
+                ["Inbox", "Create CRM Case"],
+                narrow_start, narrow_end,
+                check_sender, email_address, headers
             )
+            # Priority 2: Retry
+            if not narrow_result:
+                narrow_result = self._search_subfolder(
+                    ["Inbox", "Create CRM Case", "Retry"],
+                    narrow_start, narrow_end,
+                    check_sender, email_address, headers
+                )
+            # Priority 3: Retry 2
+            if not narrow_result:
+                narrow_result = self._search_subfolder(
+                    ["Inbox", "Create CRM Case", "Retry 2"],
+                    narrow_start, narrow_end,
+                    check_sender, email_address, headers
+                )
+            # Priority 4: origin-specific folder(s)
+            if not narrow_result:
+                narrow_result = self._search_email_in_folders(
+                    folders, check_sender, email_address, narrow_start, narrow_end,
+                    parent_folder, parent_location, headers
+                )
+            # Priority 5: main Inbox
+            if not narrow_result:
+                narrow_result = self._search_subfolder(
+                    ["Inbox"],
+                    narrow_start, narrow_end,
+                    check_sender, email_address, headers
+                )
+
             if narrow_result:
                 return narrow_result
             log.info(f"  [Email Verification] No unique match at ±1 min, keeping ±2 min result.")
@@ -648,6 +753,98 @@ class SharePointPoller:
         except Exception as e:
             log.warning(f"  [Email] Failed to move/unread email: {e}")
             return False
+
+    def _move_email_to_correct_folder(self, msg_id, origin_text, sender_email):
+        """
+        Mark an email as read and move it to the correct origin-based folder.
+
+        Used when a phone-fallback store correction is applied and the email was
+        sitting in the main Inbox rather than its normal origin folder.
+
+        Routing:
+          voice_to_text / phone  -> Inbox / Calls Entered
+          email (@winmarkcorporation.com) -> Inbox / Emails From FOMs
+          email (other domain)   -> Inbox / Emails From Franchisees
+          internal               -> Inbox / INTERNAL REQUESTS
+          splunk                 -> Inbox / INTERNAL REQUESTS / Splunk Alerts
+        """
+        origin_lower = origin_text.lower()
+        if "voice to text" in origin_lower or "phone" in origin_lower:
+            subfolder_path = ["Calls Entered"]
+        elif "email" in origin_lower:
+            domain = sender_email.split("@")[-1].lower() if "@" in sender_email else ""
+            subfolder_path = (
+                ["Emails From FOMs"]
+                if domain == "winmarkcorporation.com"
+                else ["Emails From Franchisees"]
+            )
+        elif "internal" in origin_lower:
+            subfolder_path = ["INTERNAL REQUESTS"]
+        elif "splunk" in origin_lower:
+            subfolder_path = ["INTERNAL REQUESTS", "Splunk Alerts"]
+        else:
+            log.warning(
+                f"  [Email] Unknown origin '{origin_text}' — cannot reroute email. Left in Inbox."
+            )
+            return
+
+        target_display = "Inbox / " + " / ".join(subfolder_path)
+        headers = self._graph_headers()
+        base_url = f"{GRAPH_BASE}/users/{DRAFT_TARGET_MAILBOX}/messages"
+
+        try:
+            # Navigate from Inbox well-known folder down through subfolder_path
+            current_url = (
+                f"{GRAPH_BASE}/users/{DRAFT_TARGET_MAILBOX}"
+                f"/mailFolders/inbox/childFolders"
+            )
+            folder_id = None
+
+            for name in subfolder_path:
+                found_id = None
+                page_url = current_url
+                while page_url:
+                    resp = requests.get(page_url, headers=headers, timeout=30)
+                    resp.raise_for_status()
+                    for f in resp.json().get("value", []):
+                        if f.get("displayName") == name:
+                            found_id = f["id"]
+                            break
+                    if found_id:
+                        break
+                    page_url = resp.json().get("@odata.nextLink")
+                if not found_id:
+                    log.warning(
+                        f"  [Email] Could not find folder '{name}' "
+                        f"— email left in Inbox."
+                    )
+                    return
+                folder_id = found_id
+                current_url = (
+                    f"{GRAPH_BASE}/users/{DRAFT_TARGET_MAILBOX}"
+                    f"/mailFolders/{folder_id}/childFolders"
+                )
+
+            # Mark as read
+            requests.patch(
+                f"{base_url}/{msg_id}",
+                headers=headers,
+                json={"isRead": True},
+                timeout=30,
+            ).raise_for_status()
+
+            # Move to target folder
+            requests.post(
+                f"{base_url}/{msg_id}/move",
+                headers=headers,
+                json={"destinationId": folder_id},
+                timeout=30,
+            ).raise_for_status()
+
+            log.info(f"  [Email] Marked as read and moved to '{target_display}'.")
+
+        except Exception as e:
+            log.warning(f"  [Email] Failed to reroute email to '{target_display}': {e}")
 
     def verify_email_in_folder(self, origin_text, email_address, received_datetime_str, store_number, item_id=None):
         """
@@ -712,28 +909,38 @@ class SharePointPoller:
             headers = self._graph_headers()
             folders = folder if isinstance(folder, list) else [folder]
             
-            # Always include "Create CRM Case" in every search attempt
-            if "Create CRM Case" not in folders:
-                folders = folders + ["Create CRM Case"]
-            
             # Try up to 2 times: immediate, then after 10 seconds
             for attempt in range(2):
-                result = self._search_email_in_folders(
-                    folders, check_sender, email_address, start_time, end_time,
-                    parent_folder, parent_location, headers
+                # Priority 1: Create CRM Case (Inbox subfolder — most specific staging folder)
+                result = self._search_subfolder(
+                    ["Inbox", "Create CRM Case"],
+                    start_time, end_time,
+                    check_sender, email_address, headers
                 )
-
-                # Also search Create CRM Case/Retry and Create CRM Case/Retry 2
-                # (email may have been staged there by the folder monitor)
+                # Priority 2: Create CRM Case/Retry
                 if not result:
                     result = self._search_subfolder(
-                        ["Create CRM Case", "Retry"],
+                        ["Inbox", "Create CRM Case", "Retry"],
                         start_time, end_time,
                         check_sender, email_address, headers
                     )
+                # Priority 3: Create CRM Case/Retry 2
                 if not result:
                     result = self._search_subfolder(
-                        ["Create CRM Case", "Retry 2"],
+                        ["Inbox", "Create CRM Case", "Retry 2"],
+                        start_time, end_time,
+                        check_sender, email_address, headers
+                    )
+                # Priority 4: origin-specific folder(s)
+                if not result:
+                    result = self._search_email_in_folders(
+                        folders, check_sender, email_address, start_time, end_time,
+                        parent_folder, parent_location, headers
+                    )
+                # Priority 5: main Inbox
+                if not result:
+                    result = self._search_subfolder(
+                        ["Inbox"],
                         start_time, end_time,
                         check_sender, email_address, headers
                     )
@@ -759,7 +966,7 @@ class SharePointPoller:
                 if attempt == 0:
                     log.info(f"  [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...")
                     time.sleep(10)
-                    log.info(f"  [Email Verification] Retrying email search in {folders}...")
+                    log.info(f"  [Email Verification] Retrying email search in ['Create CRM Case', 'Create CRM Case/Retry', 'Create CRM Case/Retry 2', {folders}]...")
             
             # ── Time-correction search: try ±1h, ±12h and ±24h offsets ──
             # This handles AI errors: off by 1h (DST/timezone), wrong AM/PM (±12h), wrong date (±24h)
@@ -779,10 +986,33 @@ class SharePointPoller:
                 corr_start = (corrected_dt - timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
                 corr_end = (corrected_dt + timedelta(minutes=2)).strftime("%Y-%m-%dT%H:%M:%SZ")
                 
-                result = self._search_email_in_folders(
-                    folders, check_sender, email_address, corr_start, corr_end,
-                    parent_folder, parent_location, headers
+                result = self._search_subfolder(
+                    ["Inbox", "Create CRM Case"],
+                    corr_start, corr_end,
+                    check_sender, email_address, headers
                 )
+                if not result:
+                    result = self._search_subfolder(
+                        ["Inbox", "Create CRM Case", "Retry"],
+                        corr_start, corr_end,
+                        check_sender, email_address, headers
+                    )
+                if not result:
+                    result = self._search_subfolder(
+                        ["Inbox", "Create CRM Case", "Retry 2"],
+                        corr_start, corr_end,
+                        check_sender, email_address, headers
+                    )
+                if not result:
+                    result = self._search_email_in_folders(
+                        folders, check_sender, email_address, corr_start, corr_end,
+                        parent_folder, parent_location, headers
+                    )
+                if not result:
+                    result = self._search_subfolder(
+                        ["Inbox"], corr_start, corr_end,
+                        check_sender, email_address, headers
+                    )
                 
                 if result:
                     result = self._maybe_narrow_result(
@@ -824,6 +1054,86 @@ class SharePointPoller:
             log.error(f"  [Email Verification] Error during verification: {e}")
             return {"found": False}
 
+    # ─── Account Resolution ─────────────────────────────────────────────
+
+    def _resolve_account(self, crm_client, case_params, item_id):
+        """
+        Resolve the CRM account for a SharePoint item.
+
+        Tries store number first.  If the store is not found or inactive,
+        falls back to looking up the contact phone number.
+        On a successful phone fallback:
+          - Updates case_params['store_number'] to the corrected value.
+          - Updates the SharePoint 'Storenumber' field to the corrected value.
+
+        Raises InvalidStoreNumberError if no account can be resolved.
+        """
+        store_number = case_params.get("store_number", "")
+        contact_phone = case_params.get("contact_phone", "")
+
+        # Primary: look up by store number
+        try:
+            account = crm_client.lookup_account_by_store(store_number)
+            print(f"Found account: {account.get('name', '')} (store {store_number})")
+            return account
+        except ValueError:
+            pass  # Fall through to phone fallback
+
+        # Fallback: look up by phone number
+        if not contact_phone:
+            raise InvalidStoreNumberError(
+                f"No account found for store number '{store_number}'."
+            )
+
+        log.info(
+            f"  Store '{store_number}' not found/inactive. "
+            f"Attempting phone fallback with: {contact_phone}"
+        )
+        try:
+            account = crm_client.lookup_account_by_phone(contact_phone)
+        except ValueError as phone_err:
+            # Multiple accounts matched — do not guess
+            log.warning(f"  Phone fallback ambiguous: {phone_err}")
+            raise InvalidStoreNumberError(
+                f"No account found for store number '{store_number}'. "
+                f"Phone fallback was ambiguous: {phone_err}"
+            )
+
+        if account is None:
+            log.info(
+                f"  Phone fallback: no CRM account found for {contact_phone}."
+            )
+            raise InvalidStoreNumberError(
+                f"No account found for store number '{store_number}'. "
+                f"Phone fallback also found no match for {contact_phone}."
+            )
+
+        corrected_store = account.get("accountnumber", "")
+        matched_phone = account.get("telephone1") or account.get("telephone2", "")
+        log.info(
+            f"  Phone fallback matched: store {corrected_store} "
+            f"({account.get('name')}) via phone {matched_phone}. "
+            f"Correcting store number from '{store_number}' to '{corrected_store}'."
+        )
+
+        # Update case_params so the rest of the flow uses the corrected store
+        case_params["store_number"] = corrected_store
+
+        # Update the SharePoint item so it reflects the correct store number
+        try:
+            self.update_item_fields(item_id, Storenumber=int(corrected_store))
+            log.info(
+                f"  [Store Correction] Updated SharePoint Storenumber "
+                f"from '{store_number}' to '{corrected_store}'."
+            )
+        except Exception as e:
+            log.warning(
+                f"  [Store Correction] Could not update SharePoint Storenumber: {e}"
+            )
+
+        print(f"Found account: {account.get('name', '')} (store {corrected_store})")
+        return account
+
     # ─── Main Loop ───────────────────────────────────────────────────────
 
     def process_approved_items(self, crm_client):
@@ -861,7 +1171,7 @@ class SharePointPoller:
                 store_num = case_params.get('store_number', '').strip()
                 if not store_num or store_num == '?':
                     raise InvalidStoreNumberError(f"Invalid or missing store number: '{raw_store}'")
-                
+
                 subject = case_params.get('subject', '').strip()
                 if not subject:
                     raise ValueError("Subject is required but was not provided")
@@ -922,6 +1232,11 @@ class SharePointPoller:
                         except Exception as e:
                             log.warning(f"  [Time Correction] Failed to update SharePoint columns: {e}")
 
+                # Resolve account now (with phone fallback if needed) so the corrected
+                # store number is in place for all duplicate/increment checks below.
+                account = self._resolve_account(crm_client, case_params, item_id)
+                case_params["account_id"] = account["accountid"]
+
                 # Duplicate Detection: Check if case created today within 5 minutes
                 existing = None
                 dup_reason = None
@@ -940,17 +1255,25 @@ class SharePointPoller:
                             ext_dt = datetime.strptime(existing_received_on, "%Y-%m-%dT%H:%M:%SZ")
                             time_diff = abs(new_dt - ext_dt)
                             log.info(f"  Time comparison: new={new_received_utc} existing={existing_received_on} diff={time_diff}")
-                            if time_diff <= timedelta(minutes=5):
+                            if time_diff <= timedelta(minutes=1):
                                 is_exact_duplicate = True
                                 existing = same_day_case
-                                dup_reason = "duplicate (within 5 min)"
+                                dup_reason = "duplicate (within 1 min)"
                         except ValueError as e:
                             log.warning(f"  Could not compare received-on times: {e}")
                 
+                # Resolve the incoming case type code once — used by Checks 1, 2, and 3
+                # to prefer a case-type-matching case when multiple share the same subject.
+                incoming_type_code = None
+                raw_case_type = case_params.get("case_type")
+                if raw_case_type:
+                    incoming_type_code = crm_client.resolve_case_type(raw_case_type)
+
                 # Check 1: active case for same store with same subject (any date)
                 if not existing and subject_code is not None:
                     existing = crm_client.find_active_case_by_subject(
-                        case_params["store_number"], subject_code
+                        case_params["store_number"], subject_code,
+                        preferred_case_type_code=incoming_type_code,
                     )
                     dup_reason = "same-subject"
 
@@ -960,9 +1283,44 @@ class SharePointPoller:
                         subject_code = crm_client.resolve_subject(case_params.get("subject", ""))
                     if subject_code is not None:
                         existing = crm_client.find_resolved_case_today_by_subject(
-                            case_params["store_number"], subject_code
+                            case_params["store_number"], subject_code,
+                            preferred_case_type_code=incoming_type_code,
                         )
                         dup_reason = "resolved-same-day-subject"
+
+                if not existing and subject_code is not None:
+                    # Check 3: linked subjects — e.g. "Inventory Issue" is linked to
+                    # "Question" + case type "Inventory". If the new case matches one
+                    # side of a link and an active (or resolved-today) case matches
+                    # the other side, treat it as an increment.
+                    for side_a, side_b in LINKED_SUBJECTS:
+                        for incoming_side, other_side in ((side_a, side_b), (side_b, side_a)):
+                            in_subj, in_type = incoming_side
+                            if subject_code != crm_client.resolve_subject(in_subj):
+                                continue
+                            if in_type is not None and incoming_type_code != crm_client.resolve_case_type(in_type):
+                                continue
+                            other_subj_code = crm_client.resolve_subject(other_side[0])
+                            other_type_code = (
+                                crm_client.resolve_case_type(other_side[1])
+                                if other_side[1] else None
+                            )
+                            existing = crm_client.find_active_case_by_subject(
+                                case_params["store_number"], other_subj_code,
+                                case_type_code=other_type_code,
+                            )
+                            if existing:
+                                dup_reason = "linked-subject"
+                                break
+                            existing = crm_client.find_resolved_case_today_by_subject(
+                                case_params["store_number"], other_subj_code,
+                                case_type_code=other_type_code,
+                            )
+                            if existing:
+                                dup_reason = "resolved-linked-subject"
+                                break
+                        if existing:
+                            break
 
                 if existing:
                     if is_exact_duplicate:
@@ -1051,10 +1409,17 @@ class SharePointPoller:
 
                     self.update_item_status(item_id, "Processed")
                     log.info(f"  Item {item_id} marked as Processed ({dup_reason}).")
+                    if ev_result and ev_result.get("msg_id"):
+                        log.info(f"  [Email] Marking verified email as read and moving to correct folder.")
+                        self._move_email_to_correct_folder(
+                            ev_result["msg_id"],
+                            str(fields.get("Origin", "")).strip(),
+                            str(fields.get("emailaddress", "")).strip(),
+                        )
                     processed += 1
                     continue
 
-                # No duplicate — create the case
+                # No duplicate — create the case (account already resolved above)
                 log.info(f"  No duplicate found. Creating case...")
                 try:
                     result = crm_client.create_case(**case_params)
@@ -1096,7 +1461,14 @@ class SharePointPoller:
 
                 # Mark as processed
                 self.update_item_status(item_id, "Processed")
-                
+                if ev_result and ev_result.get("msg_id"):
+                    log.info(f"  [Email] Marking verified email as read and moving to correct folder.")
+                    self._move_email_to_correct_folder(
+                        ev_result["msg_id"],
+                        str(fields.get("Origin", "")).strip(),
+                        str(fields.get("emailaddress", "")).strip(),
+                    )
+
                 # Log case creation with time details
                 case_id = result.get('case_id', '?')
                 ticket_number = result.get('ticketnumber', '?')

@@ -151,6 +151,8 @@ def parse_case_created(log_file, filter_date=None):
                 has_red_flag = False
                 email_verified = False
                 draft_status = None
+                phone_fallback = None
+                email_rerouted = None
                 current_store = store_num
                 
                 # Search backwards but stop when we find this store's "Processing store" line
@@ -177,9 +179,10 @@ def parse_case_created(log_file, filter_date=None):
                         case_type = params_match.group(3).strip()
                     
                     # Check for email verification (appears before Case created line)
-                    # Match both old format (✓ Found email) and new format ([OK] Found email)
+                    # Require 'Found email' alongside [OK] to avoid false positives from
+                    # old '[OK]\u0153\u2014 No email found...' (WARNING, NOT FOUND) lines.
                     if '[Email Verification]' in lines[j]:
-                        if '[OK]' in lines[j] or ('[INFO]' in lines[j] and 'Found email in' in lines[j]):
+                        if ('[OK]' in lines[j] and 'Found email' in lines[j]) or ('[INFO]' in lines[j] and 'Found email in' in lines[j]):
                             email_verified = True
                     
                     # Check for draft status (appears before Case created line)
@@ -187,9 +190,30 @@ def parse_case_created(log_file, filter_date=None):
                         draft_status = 'moved'
                     elif 'Draft moved successfully' in lines[j]:
                         draft_status = 'moved'
-                    elif 'No draft found' in lines[j] and 'after retry' in lines[j]:
+                    elif 'No draft found' in lines[j]:
                         draft_status = 'not_found'
-                
+
+                    # Phone fallback — store corrected via phone number lookup
+                    if phone_fallback is None:
+                        fb_match = re.search(
+                            r"Phone fallback matched: store (\d+) \(([^)]+)\) via phone ([^.]+)\. Correcting store number from '([^']+)' to '([^']+)'\.",
+                            lines[j])
+                        if fb_match:
+                            phone_fallback = {
+                                'corrected_store': fb_match.group(1),
+                                'account': fb_match.group(2),
+                                'phone': fb_match.group(3).strip(),
+                                'original_store': fb_match.group(4)
+                            }
+
+                    # Email rerouted from Inbox to origin folder after phone fallback
+                    if email_rerouted is None:
+                        reroute_match = re.search(
+                            r"\[Email\] Marked as read and moved to 'Inbox / ([^']+)'\.",
+                            lines[j])
+                        if reroute_match:
+                            email_rerouted = reroute_match.group(1)
+
                 # Look for status in nearby lines
                 for j in range(max(0, i-3), min(len(lines), i+2)):
                     if 'status updated to' in lines[j]:
@@ -218,7 +242,7 @@ def parse_case_created(log_file, filter_date=None):
                         draft_status = 'moved'
                     elif 'Draft moved successfully' in lines[j]:
                         draft_status = 'moved'
-                    elif 'No draft found' in lines[j] and 'after retry' in lines[j]:
+                    elif 'No draft found' in lines[j]:
                         draft_status = 'not_found'
                 
                 cases.append({
@@ -233,6 +257,8 @@ def parse_case_created(log_file, filter_date=None):
                     'has_red_flag': has_red_flag,
                     'email_verified': email_verified,
                     'draft_status': draft_status,
+                    'phone_fallback': phone_fallback,
+                    'email_rerouted': email_rerouted,
                     'type': 'case_created'
                 })
     except FileNotFoundError:
@@ -241,33 +267,57 @@ def parse_case_created(log_file, filter_date=None):
     return cases
 
 def parse_drs_updates(log_file, filter_date=None):
-    """Parse DRS version updates from drs_poller.log"""
+    """Parse DRS version updates and failures from drs_poller.log"""
     updates = []
-    pattern = r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ \[INFO\] Store (\d+) \(([^)]+)\): DRS Version updated to \'([^\']+)\'\.'
-    
+
     try:
-        with open(log_file, 'r', encoding='utf-8') as f:
-            for line in f:
-                match = re.search(pattern, line)
-                if match:
-                    timestamp_str, store_num, account_name, drs_version = match.groups()
-                    timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
-                    
-                    # Filter by date if specified
-                    if filter_date:
-                        if timestamp.date() != filter_date:
-                            continue
-                    
-                    updates.append({
-                        'timestamp': timestamp.isoformat(),
-                        'store': store_num,
-                        'account': account_name,
-                        'drs_version': drs_version,
-                        'type': 'drs_update'
-                    })
+        with open(log_file, 'r', encoding='utf-8', errors='replace') as f:
+            lines = f.readlines()
+
+        for i, line in enumerate(lines):
+            # Successful update: "Store X (Name): DRS Version updated to 'Y'."
+            success_match = re.search(
+                r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ \[INFO\] Store (\d+) \(([^)]+)\): DRS Version updated to \'([^\']+)\'\.', line)
+            if success_match:
+                timestamp_str, store_num, account_name, drs_version = success_match.groups()
+                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+                if filter_date and timestamp.date() != filter_date:
+                    continue
+                updates.append({
+                    'timestamp': timestamp.isoformat(),
+                    'store': store_num,
+                    'account': account_name,
+                    'drs_version': drs_version,
+                    'type': 'drs_update'
+                })
+                continue
+
+            # Failed update: "[ERROR] Failed to process email for store X: {reason}"
+            error_match = re.search(
+                r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ \[ERROR\] Failed to process email for store (\d+): (.+)', line)
+            if error_match:
+                timestamp_str, store_num, error_msg = error_match.groups()
+                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+                if filter_date and timestamp.date() != filter_date:
+                    continue
+                # Look backwards for "Processing: store=X, DRS version='Y'" context
+                drs_version = 'Unknown'
+                for j in range(max(0, i - 5), i):
+                    proc_match = re.search(r"Processing: store=\d+, DRS version='([^']+)'", lines[j])
+                    if proc_match:
+                        drs_version = proc_match.group(1)
+                        break
+                updates.append({
+                    'timestamp': timestamp.isoformat(),
+                    'store': store_num,
+                    'account': 'Unknown',
+                    'drs_version': drs_version,
+                    'error': error_msg.strip(),
+                    'type': 'drs_error'
+                })
     except (FileNotFoundError, UnicodeDecodeError):
         pass
-    
+
     return updates
 
 def parse_duplicates_increments(log_file, filter_date=None):
@@ -287,8 +337,9 @@ def parse_duplicates_increments(log_file, filter_date=None):
                 # Only process if it's a duplicate/increment type (not other statuses)
                 # Include all increment/duplicate variations
                 allowed_types = [
-                    'increment', 'same-day', 'same-subject', 'duplicate (within 5 min)',
-                    'resolved-same-day-subject', 'resolved-same-day', 'same-day-subject'
+                    'increment', 'same-day', 'same-subject', 'duplicate (within 1 min)', 'duplicate (within 5 min)',
+                    'resolved-same-day-subject', 'resolved-same-day', 'same-day-subject',
+                    'linked-subject', 'resolved-linked-subject'
                 ]
                 if status_type not in allowed_types:
                     continue
@@ -308,6 +359,8 @@ def parse_duplicates_increments(log_file, filter_date=None):
                 duplicate_type = 'Unknown'
                 is_increment = True  # Default to increment
                 email_verified = False
+                phone_fallback = None
+                email_rerouted = None
                 
                 # First pass: get store, account, subject, case_type
                 for j in range(max(0, i-15), i):
@@ -321,11 +374,36 @@ def parse_duplicates_increments(log_file, filter_date=None):
                         subject = params_match.group(2)
                         case_type = params_match.group(3).strip()
                     
-                    # Check for email verification - match both old and new formats
+                    # Check for email verification - require 'Found email' alongside [OK]
                     if '[Email Verification]' in lines[j]:
-                        if '[OK]' in lines[j] or ('[INFO]' in lines[j] and 'Found email in' in lines[j]):
+                        if ('[OK]' in lines[j] and 'Found email' in lines[j]) or ('[INFO]' in lines[j] and 'Found email in' in lines[j]):
                             email_verified = True
-                
+
+                    # Phone fallback — store corrected via phone number lookup
+                    if phone_fallback is None:
+                        fb_match = re.search(
+                            r"Phone fallback matched: store (\d+) \(([^)]+)\) via phone ([^.]+)\. Correcting store number from '([^']+)' to '([^']+)'\.",
+                            lines[j])
+                        if fb_match:
+                            phone_fallback = {
+                                'corrected_store': fb_match.group(1),
+                                'account': fb_match.group(2),
+                                'phone': fb_match.group(3).strip(),
+                                'original_store': fb_match.group(4)
+                            }
+
+                    # Email rerouted from Inbox to origin folder after phone fallback
+                    if email_rerouted is None:
+                        reroute_match = re.search(
+                            r"\[Email\] Marked as read and moved to 'Inbox / ([^']+)'\.",
+                            lines[j])
+                        if reroute_match:
+                            email_rerouted = reroute_match.group(1)
+
+                # If phone fallback corrected the store, use the corrected number
+                if phone_fallback:
+                    store = phone_fallback['corrected_store']
+
                 # Second pass: check for Exact duplicate first (true duplicates)
                 for j in range(max(0, i-15), i):
                     if 'Exact duplicate' in lines[j]:
@@ -355,6 +433,19 @@ def parse_duplicates_increments(log_file, filter_date=None):
                                 duplicate_type = dup_match.group(1)
                             break
                 
+                # Forward search: email move lines appear AFTER the anchor in production logs
+                if email_rerouted is None:
+                    for j in range(i + 1, min(len(lines), i + 5)):
+                        reroute_match = re.search(
+                            r"\[Email\] Marked as read and moved to 'Inbox / ([^']+)'\.",
+                            lines[j])
+                        if reroute_match:
+                            email_rerouted = reroute_match.group(1)
+                            break
+                        # Stop if we hit the next item's processing block
+                        if 'status updated to' in lines[j] or 'Found 1 approved' in lines[j]:
+                            break
+
                 duplicates.append({
                     'timestamp': timestamp.isoformat(),
                     'store': store,
@@ -364,6 +455,8 @@ def parse_duplicates_increments(log_file, filter_date=None):
                     'duplicate_type': duplicate_type,
                     'is_increment': is_increment,
                     'email_verified': email_verified,
+                    'phone_fallback': phone_fallback,
+                    'email_rerouted': email_rerouted,
                     'status': 'Increment' if is_increment else 'Duplicate',
                     'type': 'duplicate_increment'
                 })
@@ -407,7 +500,13 @@ def parse_errors(log_file, filter_date=None):
                 if invalid_store_match:
                     item_id = invalid_store_match.group(1)
                     store = invalid_store_match.group(2)
-                
+
+                # Check for CRM connectivity failure: "Failed to process item X (store Y): {error}"
+                crm_fail_match = re.search(r'Failed to process item (\d+) \(store (\d+)\):', error_msg)
+                if crm_fail_match:
+                    item_id = crm_fail_match.group(1)
+                    store = crm_fail_match.group(2)
+
                 # Check for RED FLAG errors (time difference issues)
                 is_red_flag = '[RED FLAG]' in error_msg
                 
@@ -442,6 +541,22 @@ def parse_errors(log_file, filter_date=None):
                     'type': 'error'
                 })
             
+            # Also look for test/placeholder store format: "Item X marked as Invalid Store Number (store 89999)."
+            invalid_store_placeholder_match = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ \[INFO\]\s+Item (\d+) marked as Invalid Store Number \(store (\d+)\)\.', line)
+            if invalid_store_placeholder_match:
+                timestamp_str, item_id, store = invalid_store_placeholder_match.groups()
+                timestamp = datetime.strptime(timestamp_str, '%Y-%m-%d %H:%M:%S')
+                if filter_date and timestamp.date() != filter_date:
+                    continue
+                errors.append({
+                    'timestamp': timestamp.isoformat(),
+                    'message': f'Item {item_id} marked as Invalid Store Number (store {store}) — test/placeholder store, skipped',
+                    'store': store,
+                    'item_id': item_id,
+                    'is_red_flag': False,
+                    'type': 'error'
+                })
+
             # Also look for INFO lines about failed items
             failed_match = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}),\d+ \[INFO\]\s+Item (\d+) marked as Failed: (.+)', line)
             if failed_match:

@@ -12,7 +12,9 @@ import {
   Calendar,
   RotateCcw,
   Inbox,
-  Zap
+  Zap,
+  Phone,
+  ArrowRight
 } from 'lucide-react';
 import './App.css';
 
@@ -96,6 +98,8 @@ function App() {
         return <FileText className="event-icon case" />;
       case 'drs_update':
         return <Database className="event-icon drs" />;
+      case 'drs_error':
+        return <AlertCircle className="event-icon drs-error" />;
       case 'duplicate_increment':
         return <RefreshCw className="event-icon duplicate" />;
       case 'error':
@@ -170,6 +174,18 @@ function App() {
                   </>
                 )}
               </div>
+              {event.email_rerouted && (
+                <div className="event-detail email-rerouted-detail">
+                  <ArrowRight size={16} />
+                  <span>Email moved to: Inbox / {event.email_rerouted}</span>
+                </div>
+              )}
+              {event.phone_fallback && (
+                <div className="event-detail phone-fallback-detail">
+                  <Phone size={16} />
+                  <span>Store corrected via phone ({event.phone_fallback.phone}): {event.phone_fallback.original_store} → {event.phone_fallback.corrected_store}</span>
+                </div>
+              )}
               {event.draft_status && (
                 <div className="event-detail draft-status">
                   {event.draft_status === 'moved' ? (
@@ -205,6 +221,24 @@ function App() {
               </div>
             </>
           )}
+          {event.type === 'drs_error' && (
+            <>
+              <div className="event-detail">
+                <Store size={16} />
+                <span><strong>Store:</strong> {event.store}</span>
+              </div>
+              {event.drs_version && event.drs_version !== 'Unknown' && (
+                <div className="event-detail">
+                  <Package size={16} />
+                  <span><strong>DRS Version:</strong> {event.drs_version}</span>
+                </div>
+              )}
+              <div className="event-detail">
+                <AlertCircle size={16} />
+                <span><strong>Error:</strong> {event.error}</span>
+              </div>
+            </>
+          )}
           {event.type === 'duplicate_increment' && (
             <>
               <div className="event-detail">
@@ -225,6 +259,18 @@ function App() {
               <div className="event-detail case-summary">
                 <span>{event.is_increment ? 'Increment' : 'Duplicate'} Type: {event.duplicate_type}</span>
               </div>
+              {event.email_rerouted && (
+                <div className="event-detail email-rerouted-detail">
+                  <ArrowRight size={16} />
+                  <span>Email moved to: Inbox / {event.email_rerouted}</span>
+                </div>
+              )}
+              {event.phone_fallback && (
+                <div className="event-detail phone-fallback-detail">
+                  <Phone size={16} />
+                  <span>Store corrected via phone ({event.phone_fallback.phone}): {event.phone_fallback.original_store} → {event.phone_fallback.corrected_store}</span>
+                </div>
+              )}
               <div className="event-detail case-status">
                 <span className="status-badge">{event.status}</span>
               </div>

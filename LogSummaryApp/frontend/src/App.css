@@ -245,6 +245,10 @@
   border-left: 4px solid #4299e1;
 }
 
+.event-card.drs_error {
+  border-left: 4px solid #f56565;
+}
+
 .event-card.duplicate_increment {
   border-left: 4px solid #ecc94b;
 }
@@ -270,6 +274,10 @@
 
 .event-icon.drs {
   color: #4299e1;
+}
+
+.event-icon.drs-error {
+  color: #f56565;
 }
 
 .event-icon.duplicate {
@@ -429,6 +437,30 @@
   margin-top: 5px;
   padding: 4px 8px;
   background: #1e2a2e;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.event-detail.phone-fallback-detail {
+  color: #f6ad55;
+  font-size: 0.9rem;
+  margin-top: 5px;
+  padding: 4px 8px;
+  background: #2a2010;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.event-detail.email-rerouted-detail {
+  color: #63b3ed;
+  font-size: 0.9rem;
+  margin-top: 4px;
+  padding: 4px 8px;
+  background: #0d1f2d;
   border-radius: 4px;
   display: flex;
   align-items: center;
