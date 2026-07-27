@@ -10,12 +10,30 @@ NOTES:
 - SharePoint list uses two text columns: "Dateandtime" (date) and "Time" (time).
 
 - Email verification now:
-  * Waits 30 seconds and retries if email not found initially
-  * Checks "Create CRM Case", "Create CRM Case/Retry", and "Create CRM Case/Retry 2" on every attempt
-  * If still not found, tries +/-12h (AM/PM swap) and +/-24h (wrong date) offsets
+  * Waits 10 seconds and retries if email not found initially
+  * Search order on EVERY attempt (highest priority first):
+      1. Inbox / Create CRM Case  (most specific staging folder)
+      2. Inbox / Create CRM Case / Retry
+      3. Inbox / Create CRM Case / Retry 2
+      4. Origin-specific folder(s)  (e.g. Calls Entered, Emails From Franchisees)
+      5. Main Inbox  (last resort)
+  * ALL origins now verify the sender email address (check_sender=true for all)
+  * If still not found, tries +/-1h (timezone/DST), +/-12h (AM/PM swap) and +/-24h (wrong date) offsets
   * If found at an offset, auto-corrects SharePoint (Dateandtime/Time) and CRM (received-on)
   * Updates SharePoint "EmailVerification" column (Yes/No) based on result
   * Runs for both new cases AND increment cases (but not duplicates)
+
+- Email movement (NEW):
+  * On SUCCESS (case created, increment, or duplicate): email is marked READ and moved to the correct
+    origin folder. This fires whenever email verification returned a msg_id.
+  * On INVALID STORE (all fallbacks exhausted): email is marked UNREAD and moved to main Inbox.
+  * If email verification found no email (NOT FOUND), no movement occurs.
+  * Destination folder is determined by Origin field + sender domain:
+      Voice to Text / Phone  -> Inbox / Calls Entered
+      Email (@winmarkcorporation.com) -> Inbox / Emails From FOMs
+      Email (other domain)   -> Inbox / Emails From Franchisees
+      Internal               -> Inbox / INTERNAL REQUESTS
+      Splunk                 -> Inbox / INTERNAL REQUESTS / Splunk Alerts
 
 # ===== SCENARIO 1: Normal New Case Creation =====
 2026-05-12 14:30:15,123 [INFO] Found 1 approved item(s) to process.
@@ -29,7 +47,9 @@ Case abc123-def456-ghi789 assigned to team successfully.
 2026-05-12 14:30:16,012 [INFO]   Note added to case.
 2026-05-12 14:30:16,345 [INFO]   [Email Verification] [OK] Found email in 'Emails From Franchisees' at 2026-05-12T19:25:00Z from johnsmith@example.com
 2026-05-12 14:30:16,678 [INFO] Item 1234 status updated to 'Processed'.
-2026-05-12 14:30:16,679 [INFO] Case created for store 21158: CAS-363400-A1B2C3 (ID: abc123-def456-ghi789)
+2026-05-12 14:30:16,679 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 14:30:16,750 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
+2026-05-12 14:30:16,751 [INFO] Case created for store 21158: CAS-363400-A1B2C3 (ID: abc123-def456-ghi789)
 2026-05-12 14:30:16,680 [INFO]   Received On: 2026-05-12T19:25:00Z
 2026-05-12 14:30:16,681 [INFO]   Created On:  2026-05-12T19:30:15Z
 2026-05-12 14:30:16,682 [INFO]   Time Difference: 0:05:15 (Created - Received)
@@ -44,28 +64,132 @@ Case abc123-def456-ghi789 assigned to team successfully.
 2026-05-12 14:35:21,012 [INFO]   Increment note added to CAS-363350-X7Y8Z9.
 2026-05-12 14:35:21,345 [INFO]   [Email Verification] [OK] Found email in 'Calls Entered' at 2026-05-12T19:32:00Z from no-reply@zoom.us
 2026-05-12 14:35:21,678 [INFO] Item 1235 status updated to 'Processed'.
+2026-05-12 14:35:21,679 [INFO]   Item 1235 marked as Processed (same-subject).
+2026-05-12 14:35:21,680 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 14:35:21,750 [INFO]   [Email] Marked as read and moved to 'Inbox / Calls Entered'.
 
 
-# ===== SCENARIO 3: Increment - Resolved Same Day Same Subject =====
+# ===== SCENARIO 2b: Increment with full draft-not-found retry cycle =====
+# Draft-reply retries add ~14 lines between Params and "marked as Processed".
+# Log Summary parser must look back far enough to still find store/subject/type.
+2026-07-15 15:43:43,639 [INFO] Found 1 approved item(s) to process.
+2026-07-15 15:43:44,217 [INFO] Item 7579 status updated to 'Processing'.
+2026-07-15 15:43:44,218 [INFO] Processing store 11909...
+2026-07-15 15:43:44,218 [INFO]   Params: contact=Dustin, phone=6624704438, subject=Appointment, case_type=Ingenico
+2026-07-15 15:43:45,634 [INFO]   [Email Verification] [OK] Found email in 'Inbox/Create CRM Case' at 2026-07-15T20:40:28Z from SupportCenter@winmarkcorporation.com
+2026-07-15 15:43:46,490 [INFO]   Increment (same-subject): CAS-368769-B9C2M2 (owner: Keane Kirgiss). Skipping case creation.
+2026-07-15 15:43:47,050 [INFO]   Increment note added to CAS-368769-B9C2M2.
+2026-07-15 15:43:47,436 [INFO]   Draft not found (attempt 1/7, searched 1 draft(s)). Waiting 10s before retry...
+2026-07-15 15:43:57,437 [INFO]   Retrying draft search for 'SupportCenter@winmarkcorporation.com'...
+2026-07-15 15:43:57,835 [INFO]   Draft not found (attempt 2/7, searched 1 draft(s)). Waiting 10s before retry...
+2026-07-15 15:44:07,835 [INFO]   Retrying draft search for 'SupportCenter@winmarkcorporation.com'...
+2026-07-15 15:44:08,418 [INFO]   Draft not found (attempt 3/7, searched 1 draft(s)). Waiting 10s before retry...
+2026-07-15 15:44:18,419 [INFO]   Retrying draft search for 'SupportCenter@winmarkcorporation.com'...
+2026-07-15 15:44:18,798 [INFO]   Draft not found (attempt 4/7, searched 1 draft(s)). Waiting 10s before retry...
+2026-07-15 15:44:28,799 [INFO]   Retrying draft search for 'SupportCenter@winmarkcorporation.com'...
+2026-07-15 15:44:29,155 [INFO]   Draft not found (attempt 5/7, searched 1 draft(s)). Waiting 10s before retry...
+2026-07-15 15:44:39,155 [INFO]   Retrying draft search for 'SupportCenter@winmarkcorporation.com'...
+2026-07-15 15:44:39,501 [INFO]   Draft not found (attempt 6/7, searched 1 draft(s)). Waiting 10s before retry...
+2026-07-15 15:44:49,501 [INFO]   Retrying draft search for 'SupportCenter@winmarkcorporation.com'...
+2026-07-15 15:44:49,876 [WARNING]   No draft found in nnyamekye@winmarkcorporation.com addressed to 'SupportCenter@winmarkcorporation.com' after 7 attempts (60s). Searched 1 draft(s) on final attempt.
+2026-07-15 15:44:50,396 [INFO] Item 7579 status updated to 'Processed'.
+2026-07-15 15:44:50,398 [INFO]   Item 7579 marked as Processed (same-subject).
+2026-07-15 15:44:50,399 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-07-15 15:44:51,674 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From FOMs'.
+
+
+# ===== SCENARIO 3: Increment - Resolved Same Day (Allowlisted Only) =====
+# Resolved-today increments apply for RESOLVED_INCREMENT_RULES:
+#   any case type: Appointment, Checks, Internal Request, Quote, Question,
+#                  Reports Issue, Winmark Connect
+#   specific: Software Issue + Tango only
+# Other subjects/types create a new case if the only match is already resolved.
 2026-05-12 14:40:25,123 [INFO] Found 1 approved item(s) to process.
 2026-05-12 14:40:25,456 [INFO] Item 1236 status updated to 'Processing'.
-2026-05-12 14:40:25,457 [INFO] Processing store 80229...
-2026-05-12 14:40:25,458 [INFO]   Params: contact=Dave Wells, phone=816-210-8246, subject=Internet/Network Issue, case_type=CCT/CDE
+2026-05-12 14:40:25,457 [INFO] Processing store 21297...
+2026-05-12 14:40:25,458 [INFO]   Params: contact=Adam Samit, phone=215-932-9006, subject=Appointment, case_type=New Store Setup
 2026-05-12 14:40:25,789 [INFO]   Increment (resolved-same-day-subject): CAS-363298-T4G0Y7 (owner: Support Center). Skipping case creation.
 2026-05-12 14:40:26,012 [INFO]   Increment note added to CAS-363298-T4G0Y7.
-2026-05-12 14:40:26,345 [INFO]   [Email Verification] [OK]œ“ Found email in 'Emails From FOMs' at 2026-05-12T19:38:00Z from dave@example.com
+2026-05-12 14:40:26,345 [INFO]   [Email Verification] [OK] Found email in 'Emails From Franchisees' at 2026-05-12T19:38:00Z from adam@example.com
 2026-05-12 14:40:26,678 [INFO] Item 1236 status updated to 'Processed'.
+2026-05-12 14:40:26,679 [INFO]   Item 1236 marked as Processed (resolved-same-day-subject).
+2026-05-12 14:40:26,680 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 14:40:26,750 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
+
+# Software Issue + Tango is allowlisted; other Software Issue case types are not.
+2026-05-12 14:41:00,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 14:41:00,456 [INFO] Item 1260 status updated to 'Processing'.
+2026-05-12 14:41:00,457 [INFO] Processing store 80400...
+2026-05-12 14:41:00,458 [INFO]   Params: contact=Chris, phone=Store, subject=Software Issue, case_type=Tango
+2026-05-12 14:41:00,789 [INFO]   Increment (resolved-same-day-subject): CAS-363299-T9A1B2 (owner: Support Center). Skipping case creation.
+2026-05-12 14:41:01,012 [INFO]   Increment note added to CAS-363299-T9A1B2.
+2026-05-12 14:41:01,345 [INFO]   [Email Verification] [OK] Found email in 'Emails From Franchisees' at 2026-05-12T19:39:00Z from chris@example.com
+2026-05-12 14:41:01,678 [INFO] Item 1260 status updated to 'Processed'.
+2026-05-12 14:41:01,679 [INFO]   Item 1260 marked as Processed (resolved-same-day-subject).
+2026-05-12 14:41:01,680 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 14:41:01,750 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
 
 
-# ===== SCENARIO 4: Duplicate - Within 5 Minutes =====
+# ===== SCENARIO 3B: Increment - Linked Subject =====
+# Active linked-subject: any subject pair in LINKED_SUBJECTS.
+# Resolved linked-subject: only when the incoming subject is in RESOLVED_INCREMENT_SUBJECTS
+# (e.g. Appointment → resolved Question via Appointment↔Question link).
+2026-05-12 14:42:25,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 14:42:25,456 [INFO] Item 1252 status updated to 'Processing'.
+2026-05-12 14:42:25,457 [INFO] Processing store 80330...
+2026-05-12 14:42:25,458 [INFO]   Params: contact=Mary Hill, phone=Store, subject=Inventory Issue, case_type=Preinventory
+2026-05-12 14:42:25,789 [INFO]   Increment (linked-subject): CAS-363310-K2M4N6 (owner: Support Center). Skipping case creation.
+2026-05-12 14:42:26,012 [INFO]   Increment note added to CAS-363310-K2M4N6.
+2026-05-12 14:42:26,345 [INFO]   [Email Verification] [OK] Found email in 'Emails From Franchisees' at 2026-05-12T19:40:00Z from mary@example.com
+2026-05-12 14:42:26,678 [INFO] Item 1252 status updated to 'Processed'.
+2026-05-12 14:42:26,679 [INFO]   Item 1252 marked as Processed (linked-subject).
+2026-05-12 14:42:26,680 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 14:42:26,750 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
+
+2026-05-12 14:43:25,123 [INFO] Found 1 approved item(s) to process.
+2026-05-12 14:43:25,456 [INFO] Item 1253 status updated to 'Processing'.
+2026-05-12 14:43:25,457 [INFO] Processing store 21298...
+2026-05-12 14:43:25,458 [INFO]   Params: contact=Sam Lee, phone=Store, subject=Appointment, case_type=POS
+2026-05-12 14:43:25,789 [INFO]   Increment (resolved-linked-subject): CAS-363311-P7Q8R9 (owner: Support Center). Skipping case creation.
+2026-05-12 14:43:26,012 [INFO]   Increment note added to CAS-363311-P7Q8R9.
+2026-05-12 14:43:26,345 [INFO]   [Email Verification] [OK] Found email in 'Emails From Franchisees' at 2026-05-12T19:41:00Z from sam@example.com
+2026-05-12 14:43:26,678 [INFO] Item 1253 status updated to 'Processed'.
+2026-05-12 14:43:26,679 [INFO]   Item 1253 marked as Processed (resolved-linked-subject).
+2026-05-12 14:43:26,680 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 14:43:26,750 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
+
+
+# ===== SCENARIO 4: Duplicate - Within 1 Minute =====
 2026-05-12 14:45:30,123 [INFO] Found 1 approved item(s) to process.
 2026-05-12 14:45:30,456 [INFO] Item 1237 status updated to 'Processing'.
 2026-05-12 14:45:30,457 [INFO] Processing store 21297...
 2026-05-12 14:45:30,458 [INFO]   Params: contact=Adam Samit, phone=215-932-9006, subject=Appointment, case_type=New Store Setup
-2026-05-12 14:45:30,789 [INFO]   Time comparison: new=2026-05-12T19:43:00Z existing=2026-05-12T19:41:00Z diff=0:02:00
-2026-05-12 14:45:30,790 [INFO]   Exact duplicate (duplicate (within 5 min)): CAS-363362-W5K3V0 (owner: Support Center). Skipping case creation.
-2026-05-12 14:45:31,012 [INFO]   [Email Verification] [OK]œ“ Found email in 'Emails From Franchisees' at 2026-05-12T19:43:15Z from adam@example.com
+2026-05-12 14:45:30,789 [INFO]   Time comparison: new=2026-05-12T19:43:00Z existing=2026-05-12T19:43:00Z diff=0:00:00
+2026-05-12 14:45:30,790 [INFO]   Exact duplicate (duplicate (within 1 min)): CAS-363362-W5K3V0 (owner: Support Center). Skipping case creation.
+2026-05-12 14:45:31,012 [INFO]   [Email Verification] [OK] Found email in 'Emails From Franchisees' at 2026-05-12T19:43:15Z from adam@example.com
 2026-05-12 14:45:31,345 [INFO] Item 1237 status updated to 'Processed'.
+2026-05-12 14:45:31,346 [INFO]   Item 1237 marked as Processed (duplicate (within 1 min)).
+2026-05-12 14:45:31,346 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 14:45:31,400 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
+
+
+# ===== SCENARIO 4b: Duplicate - Same Minute as Already-Resolved Case =====
+# Original case was created earlier today with received-on 02:35, then resolved.
+# A re-submitted item with the same received-on minute must be Duplicate (exact
+# match), not a new case. Exact-duplicate check includes resolved cases.
+2026-07-10 15:26:08,478 [INFO] Found 1 approved item(s) to process.
+2026-07-10 15:26:09,089 [INFO] Item 7120 status updated to 'Processing'.
+2026-07-10 15:26:09,090 [INFO] Processing store 80793...
+2026-07-10 15:26:09,090 [INFO]   Params: contact=Kaley, phone=9014893184, subject=Question, case_type=Operational
+2026-07-10 15:26:15,971 [INFO]   [Email Verification] [OK] Found email in 'Emails From Franchisees' at 2026-07-10T02:35:07Z from kaleyarthurpc@gmail.com
+2026-07-10 15:26:16,500 [INFO]   Time comparison: new=2026-07-10T02:35:00Z existing=2026-07-10T02:35:00Z diff=0:00:00
+2026-07-10 15:26:16,501 [INFO]   Exact duplicate (duplicate (within 1 min)): CAS-368289-F8P1G4 (owner: Keane Kirgiss). Skipping case creation.
+2026-07-10 15:26:17,936 [INFO]   Found draft: 'RE: 80793 TAX FREE HOLIDAY HELP.' -> creating draft reply on verified email
+2026-07-10 15:26:19,729 [INFO]   Draft reply created successfully (new ID: AAMkADJhYmFlYzdmLWVk...)
+2026-07-10 15:26:20,282 [INFO] Item 7120 status updated to 'Processed'.
+2026-07-10 15:26:20,283 [INFO]   Item 7120 marked as Processed (duplicate (within 1 min)).
+2026-07-10 15:26:20,283 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-07-10 15:26:21,421 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
 
 
 # ===== SCENARIO 5: Future Date Warning (Still Creates Case) =====
@@ -99,7 +223,11 @@ Found account: Doe, Jane (store 12345)
 Case created successfully. ID: qwe123-rty456-uio789
 Case qwe123-rty456-uio789 assigned to team successfully.
 2026-05-12 14:55:41,012 [INFO]   Note added to case.
-2026-05-12 14:55:41,345 [WARNING]   [Email Verification] [OK]œ— No email found in ['Splunk Alerts'] within +/-2 minutes of 2026-05-12T02:00:00Z
+2026-05-12 14:55:41,200 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
+2026-05-12 14:55:51,201 [INFO]   [Email Verification] Retrying email search in ['Create CRM Case', 'Create CRM Case/Retry', 'Create CRM Case/Retry 2', ['Splunk Alerts']]...
+2026-05-12 14:55:57,500 [INFO]   [Email Verification] Trying time-corrected search (+/-1h, +/-12h, +/-24h)...
+2026-05-12 14:55:59,345 [WARNING]   [Email Verification] [NOT FOUND] No email found in ['Splunk Alerts'] within +/-2 minutes of 2026-05-12T02:00:00Z or +/-1h/12h/24h offsets
+2026-05-12 14:55:59,346 [WARNING]   [Email Verification] Expected sender: splunk-alerts@winmarkcorporation.com
 2026-05-12 14:55:41,678 [INFO] Item 1239 status updated to 'Processed'.
 2026-05-12 14:55:41,679 [INFO] Case created for store 12345: CAS-363403-M4N5O6 (ID: qwe123-rty456-uio789)
 2026-05-12 14:55:41,680 [INFO]   Received On: 2026-05-12T02:00:00Z
@@ -118,17 +246,20 @@ Found account: Harms, Kannan (store 21158)
 Case created successfully. ID: aaa111-bbb222-ccc333
 Case aaa111-bbb222-ccc333 assigned to team successfully.
 2026-05-12 15:00:46,012 [INFO]   Note added to case.
-2026-05-12 15:00:46,345 [INFO]   Found draft: 'RE: Store 21158 Software Issue' -> moving to supportcenter@winmarkcorporation.com Drafts
-2026-05-12 15:00:46,678 [INFO]   Draft moved successfully (new ID: AAMkADJhYmFlYzdmLWVk...)
+2026-05-12 15:00:46,345 [INFO]   Found draft: 'RE: Store 21158 Software Issue' -> creating draft reply on verified email
+2026-05-12 15:00:46,678 [INFO]   Draft reply created successfully (new ID: AAMkADJhYmFlYzdmLWVk...)
 2026-05-12 15:00:46,901 [INFO]   [Email Verification] [OK]œ“ Found email in 'Calls Entered' at 2026-05-12T19:58:00Z from no-reply@zoom.us
 2026-05-12 15:00:47,234 [INFO] Item 1240 status updated to 'Processed'.
-2026-05-12 15:00:47,235 [INFO] Case created for store 21158: CAS-363404-H5R6D5 (ID: aaa111-bbb222-ccc333)
+2026-05-12 15:00:47,235 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 15:00:47,300 [INFO]   [Email] Marked as read and moved to 'Inbox / Calls Entered'.
+2026-05-12 15:00:47,301 [INFO] Case created for store 21158: CAS-363404-H5R6D5 (ID: aaa111-bbb222-ccc333)
 2026-05-12 15:00:47,236 [INFO]   Received On: 2026-05-12T19:58:00Z
 2026-05-12 15:00:47,237 [INFO]   Created On:  2026-05-12T20:00:45Z
 2026-05-12 15:00:47,238 [INFO]   Time Difference: 0:02:45 (Created - Received)
 
 
 # ===== SCENARIO 8: Draft Reply Not Found, Then Found After Retry =====
+# Draft not present on first check, found on a later retry (up to 6 retries, 10s apart).
 2026-05-12 15:05:50,123 [INFO] Found 1 approved item(s) to process.
 2026-05-12 15:05:50,456 [INFO] Item 1241 status updated to 'Processing'.
 2026-05-12 15:05:50,457 [INFO] Processing store 20924...
@@ -138,19 +269,24 @@ Found account: Suy, Simon (store 20924)
 Case created successfully. ID: ddd444-eee555-fff666
 Case ddd444-eee555-fff666 assigned to team successfully.
 2026-05-12 15:05:51,012 [INFO]   Note added to case.
-2026-05-12 15:05:51,345 [INFO]   Draft not found on first check (searched 2 draft(s)). Waiting 10 seconds for draft to be created...
-2026-05-12 15:06:21,456 [INFO]   Retrying draft search for 'hennasboutique@gmail.com'...
-2026-05-12 15:06:21,789 [INFO]   Found draft: 'RE: OUAC20924 - Hard tag printer issues' -> moving to supportcenter@winmarkcorporation.com Drafts
-2026-05-12 15:06:52,012 [INFO]   Draft moved successfully (new ID: AAMkADJhYmFlYzdmLWVk...)
+2026-05-12 15:05:51,345 [INFO]   Draft not found (attempt 1/7, searched 2 draft(s)). Waiting 10s before retry...
+2026-05-12 15:06:01,456 [INFO]   Retrying draft search for 'hennasboutique@gmail.com'...
+2026-05-12 15:06:01,789 [INFO]   Draft not found (attempt 2/7, searched 2 draft(s)). Waiting 10s before retry...
+2026-05-12 15:06:11,901 [INFO]   Retrying draft search for 'hennasboutique@gmail.com'...
+2026-05-12 15:06:11,234 [INFO]   Found draft: 'RE: OUAC20924 - Hard tag printer issues' -> creating draft reply on verified email
+2026-05-12 15:06:12,012 [INFO]   Draft reply created successfully (new ID: AAMkADJhYmFlYzdmLWVk...)
 2026-05-12 15:06:52,345 [INFO]   [Email Verification] [OK]œ“ Found email in 'Emails From Franchisees' at 2026-05-12T20:03:00Z from hennasboutique@gmail.com
 2026-05-12 15:06:52,678 [INFO] Item 1241 status updated to 'Processed'.
-2026-05-12 15:06:52,679 [INFO] Case created for store 20924: CAS-363405-G2M2C1 (ID: ddd444-eee555-fff666)
+2026-05-12 15:06:52,679 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 15:06:52,750 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
+2026-05-12 15:06:52,751 [INFO] Case created for store 20924: CAS-363405-G2M2C1 (ID: ddd444-eee555-fff666)
 2026-05-12 15:06:52,680 [INFO]   Received On: 2026-05-12T20:03:00Z
 2026-05-12 15:06:52,681 [INFO]   Created On:  2026-05-12T20:05:50Z
 2026-05-12 15:06:52,682 [INFO]   Time Difference: 0:02:50 (Created - Received)
 
 
-# ===== SCENARIO 9: Draft Reply Not Found After Retry =====
+# ===== SCENARIO 9: Draft Reply Not Found After All Retries =====
+# Draft never found — all 7 attempts exhausted (60 seconds total wait).
 2026-05-12 15:10:55,123 [INFO] Found 1 approved item(s) to process.
 2026-05-12 15:10:55,456 [INFO] Item 1242 status updated to 'Processing'.
 2026-05-12 15:10:55,457 [INFO] Processing store 80229...
@@ -160,12 +296,19 @@ Found account: Wells, David (store 80229)
 Case created successfully. ID: ggg777-hhh888-iii999
 Case ggg777-hhh888-iii999 assigned to team successfully.
 2026-05-12 15:10:56,012 [INFO]   Note added to case.
-2026-05-12 15:10:56,345 [INFO]   Draft not found on first check (searched 3 draft(s)). Waiting 10 seconds for draft to be created...
-2026-05-12 15:11:26,456 [INFO]   Retrying draft search for 'daveandconniewells@yahoo.com'...
-2026-05-12 15:11:26,789 [WARNING]   No draft found in nnyamekye@winmarkcorporation.com addressed to 'daveandconniewells@yahoo.com' after retry. Searched 3 draft(s).
+2026-05-12 15:10:56,345 [INFO]   Draft not found (attempt 1/7, searched 3 draft(s)). Waiting 10s before retry...
+2026-05-12 15:11:06,456 [INFO]   Retrying draft search for 'daveandconniewells@yahoo.com'...
+2026-05-12 15:11:06,789 [INFO]   Draft not found (attempt 2/7, searched 3 draft(s)). Waiting 10s before retry...
+2026-05-12 15:11:16,901 [INFO]   Retrying draft search for 'daveandconniewells@yahoo.com'...
+# ... (attempts 3-6 follow same pattern) ...
+2026-05-12 15:11:56,234 [INFO]   Draft not found (attempt 6/7, searched 3 draft(s)). Waiting 10s before retry...
+2026-05-12 15:12:06,345 [INFO]   Retrying draft search for 'daveandconniewells@yahoo.com'...
+2026-05-12 15:12:06,789 [WARNING]   No draft found in nnyamekye@winmarkcorporation.com addressed to 'daveandconniewells@yahoo.com' after 7 attempts (60s). Searched 3 draft(s) on final attempt.
 2026-05-12 15:11:57,012 [INFO]   [Email Verification] [OK]œ“ Found email in 'Emails From FOMs' at 2026-05-12T20:08:00Z from daveandconniewells@yahoo.com
 2026-05-12 15:11:57,345 [INFO] Item 1242 status updated to 'Processed'.
-2026-05-12 15:11:57,346 [INFO] Case created for store 80229: CAS-363406-R0M5H8 (ID: ggg777-hhh888-iii999)
+2026-05-12 15:11:57,346 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 15:11:57,400 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From FOMs'.
+2026-05-12 15:11:57,401 [INFO] Case created for store 80229: CAS-363406-R0M5H8 (ID: ggg777-hhh888-iii999)
 2026-05-12 15:11:57,347 [INFO]   Received On: 2026-05-12T20:08:00Z
 2026-05-12 15:11:57,348 [INFO]   Created On:  2026-05-12T20:10:55Z
 2026-05-12 15:11:57,349 [INFO]   Time Difference: 0:02:55 (Created - Received)
@@ -182,24 +325,30 @@ Case ggg777-hhh888-iii999 assigned to team successfully.
 
 # ===== SCENARIO 10b: Invalid Store Number - Store Does Not Exist in CRM =====
 # Store number entered by AI does not exist at all in CRM.
+# Phone fallback is attempted but also finds no match.
 # Email is moved back to Inbox and marked unread for manual handling.
 2026-05-19 19:47:00,364 [INFO] Found 1 approved item(s) to process.
 2026-05-19 19:47:00,994 [INFO] Item 1903 status updated to 'Processing'.
 2026-05-19 19:47:00,998 [INFO] Processing store 10804...
 2026-05-19 19:47:00,999 [INFO]   Params: contact=Staff, phone=(417) 883-7444, subject=Locked Buy, case_type=Active
-2026-05-19 19:47:02,934 [INFO]   [Email Verification] [OK] Found email in 'Create CRM Case' at 2026-05-20T00:43:30Z from no-reply@zoom.us
+2026-05-19 19:47:02,934 [INFO]   [Email Verification] [OK] Found email in 'Inbox/Create CRM Case' at 2026-05-20T00:43:30Z from no-reply@zoom.us
 2026-05-19 19:47:04,016 [INFO]   No duplicate found. Creating case...
-2026-05-19 19:47:04,030 [ERROR] Invalid store number for item 1903 (store 10804): No account found for store number '10804'.
+2026-05-19 19:47:04,020 [INFO]   Store '10804' not found/inactive. Attempting phone fallback with: (417) 883-7444
+2026-05-19 19:47:04,028 [INFO]   Phone fallback: no CRM account found for (417) 883-7444.
+2026-05-19 19:47:04,030 [ERROR] Invalid store number for item 1903 (store 10804): No account found for store number '10804'. Phone fallback also found no match for (417) 883-7444.
 2026-05-19 19:47:04,538 [WARNING] Failed to update with error message, retrying without it...
 2026-05-19 19:47:05,110 [INFO] Item 1903 status updated to 'Invalid Store Number' (without error message).
-2026-05-19 19:47:05,112 [INFO]   Item 1903 marked as Invalid Store Number: No account found for store number '10804'.
+2026-05-19 19:47:05,112 [INFO]   Item 1903 marked as Invalid Store Number: No account found for store number '10804'. Phone fallback also found no match for (417) 883-7444.
 2026-05-19 19:47:05,112 [INFO]   [Email] Moving verified email back to Inbox and marking unread...
 2026-05-19 19:47:05,667 [INFO]   [Email] Moved email to Inbox.
 2026-05-19 19:47:06,191 [INFO]   [Email] Marked email as unread.
+# NOTE: If no contact phone is on the item, the phone fallback lines are skipped entirely
+# and the error goes straight to: Invalid store number for item {id} (store {store}): No account found...
 
 
 # ===== SCENARIO 10c: Invalid Store Number - Store Exists But Is Inactive/Closed =====
 # Store number exists in CRM but account is inactive (closed store).
+# Phone fallback is attempted but also finds no match.
 # Treated identically to a missing store — email moved to Inbox, item flagged.
 2026-05-19 19:57:03,462 [INFO] Found 1 approved item(s) to process.
 2026-05-19 19:57:04,011 [INFO] Item 1904 status updated to 'Processing'.
@@ -207,13 +356,87 @@ Case ggg777-hhh888-iii999 assigned to team successfully.
 2026-05-19 19:57:04,017 [INFO]   Params: contact=Staff, phone=(417) 883-7444, subject=Locked Buy, case_type=Active
 2026-05-19 19:57:04,867 [INFO]   [Email Verification] [OK] Found email in 'Calls Entered' at 2026-05-20T00:43:30Z from no-reply@zoom.us
 2026-05-19 19:57:06,039 [INFO]   No duplicate found. Creating case...
-2026-05-19 19:57:06,050 [ERROR] Invalid store number for item 1904 (store 10408): Account for store number '10408' is inactive/closed.
+2026-05-19 19:57:06,043 [INFO]   Store '10408' not found/inactive. Attempting phone fallback with: (417) 883-7444
+2026-05-19 19:57:06,048 [INFO]   Phone fallback: no CRM account found for (417) 883-7444.
+2026-05-19 19:57:06,050 [ERROR] Invalid store number for item 1904 (store 10408): Account for store number '10408' is inactive/closed. Phone fallback also found no match for (417) 883-7444.
 2026-05-19 19:57:06,538 [WARNING] Failed to update with error message, retrying without it...
 2026-05-19 19:57:07,110 [INFO] Item 1904 status updated to 'Invalid Store Number' (without error message).
-2026-05-19 19:57:07,112 [INFO]   Item 1904 marked as Invalid Store Number: Account for store number '10408' is inactive/closed.
+2026-05-19 19:57:07,112 [INFO]   Item 1904 marked as Invalid Store Number: Account for store number '10408' is inactive/closed. Phone fallback also found no match for (417) 883-7444.
 2026-05-19 19:57:07,112 [INFO]   [Email] Moving verified email back to Inbox and marking unread...
 2026-05-19 19:57:07,667 [INFO]   [Email] Moved email to Inbox.
 2026-05-19 19:57:08,191 [INFO]   [Email] Marked email as unread.
+
+
+# ===== SCENARIO 10d: Phone Fallback - Success (Wrong Store Number Corrected via Phone) =====
+# Store number in SharePoint was wrong (e.g. 89999 or any typo).
+# Phone fallback finds exactly one CRM account -> store number corrected, case created.
+# SharePoint Storenumber field is also updated to the corrected value.
+# Because the email was in the main Inbox (typical for 89999 items), after the case is
+# marked Processed the email is also marked read and moved to the correct origin folder.
+# NOTE: _resolve_account now runs BEFORE duplicate checks, so store correction log lines
+#       appear before 'No duplicate found.' in the log.
+2026-05-19 20:05:00,123 [INFO] Found 1 approved item(s) to process.
+2026-05-19 20:05:00,456 [INFO] Item 1905 status updated to 'Processing'.
+2026-05-19 20:05:00,457 [INFO] Processing store 89999...
+2026-05-19 20:05:00,458 [INFO]   Params: contact=Test, phone=803-509-8588, subject=Question, case_type=Other
+2026-05-19 20:05:01,200 [INFO]   [Email Verification] [OK] Found email in 'Inbox' at 2026-05-19T20:02:00Z from franchisee@example.com
+2026-05-19 20:05:01,400 [INFO]   Store '89999' not found/inactive. Attempting phone fallback with: 803-509-8588
+2026-05-19 20:05:01,900 [INFO]   Phone fallback matched: store 80509 (Justus, Greg) via phone 803-509-8588. Correcting store number from '89999' to '80509'.
+2026-05-19 20:05:02,100 [INFO]   [Store Correction] Updated SharePoint Storenumber from '89999' to '80509'.
+Found account: Justus, Greg (store 80509)
+2026-05-19 20:05:02,300 [INFO]   No duplicate found. Creating case...
+Case created successfully. ID: aaa111-bbb222-ccc333
+Case aaa111-bbb222-ccc333 assigned to team successfully.
+2026-05-19 20:05:03,100 [INFO]   Note added to case.
+2026-05-19 20:05:03,500 [INFO] Item 1905 status updated to 'Processed'.
+2026-05-19 20:05:03,510 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-19 20:05:03,900 [INFO]   [Email] Marked as read and moved to 'Inbox / Calls Entered'.
+2026-05-19 20:05:03,901 [INFO] Case created for store 80509: CAS-365300-X9Y8Z7 (ID: aaa111-bbb222-ccc333)
+2026-05-19 20:05:03,902 [INFO]   Received On: 2026-05-19T20:02:00Z
+2026-05-19 20:05:03,903 [INFO]   Created On:  2026-05-19T20:05:03Z
+2026-05-19 20:05:03,904 [INFO]   Time Difference: 0:03:03 (Created - Received)
+# NOTE: Email move always fires when processing succeeds and email was verified (msg_id exists).
+# NOTE: The destination folder depends on Origin:
+#   Voice to Text / Phone -> 'Inbox / Calls Entered'
+#   Email (@winmarkcorporation.com sender) -> 'Inbox / Emails From FOMs'
+#   Email (other sender) -> 'Inbox / Emails From Franchisees'
+#   Internal -> 'Inbox / INTERNAL REQUESTS'
+#   Splunk -> 'Inbox / INTERNAL REQUESTS / Splunk Alerts'
+
+
+# ===== SCENARIO 10e: Phone Fallback - Ambiguous (Multiple CRM Accounts Match) =====
+# Phone number matches more than one active CRM account — cannot determine correct store.
+# Item marked as Invalid Store Number; no guessing.
+2026-05-19 20:10:00,123 [INFO] Found 1 approved item(s) to process.
+2026-05-19 20:10:00,456 [INFO] Item 1906 status updated to 'Processing'.
+2026-05-19 20:10:00,457 [INFO] Processing store 89999...
+2026-05-19 20:10:00,458 [INFO]   Params: contact=Staff, phone=555-000-1234, subject=Hardware Issue, case_type=POS
+2026-05-19 20:10:01,200 [INFO]   [Email Verification] [OK] Found email in 'Inbox/Create CRM Case' at 2026-05-19T20:07:00Z from no-reply@zoom.us
+2026-05-19 20:10:01,500 [INFO]   No duplicate found. Creating case...
+2026-05-19 20:10:01,510 [INFO]   Store '89999' not found/inactive. Attempting phone fallback with: 555-000-1234
+2026-05-19 20:10:02,400 [WARNING]   Phone fallback ambiguous: Phone '555-000-1234' matched 2 accounts: store 11111 (Smith, John), store 22222 (Jones, Mary). Cannot determine correct account.
+2026-05-19 20:10:02,410 [ERROR] Invalid store number for item 1906 (store 89999): No account found for store number '89999'. Phone fallback was ambiguous: Phone '555-000-1234' matched 2 accounts: store 11111 (Smith, John), store 22222 (Jones, Mary). Cannot determine correct account.
+2026-05-19 20:10:02,900 [INFO] Item 1906 status updated to 'Invalid Store Number'.
+2026-05-19 20:10:02,901 [INFO]   Item 1906 marked as Invalid Store Number: No account found for store number '89999'. Phone fallback was ambiguous...
+2026-05-19 20:10:02,902 [INFO]   [Email] Moving verified email back to Inbox and marking unread...
+2026-05-19 20:10:03,400 [INFO]   [Email] Moved email to Inbox.
+2026-05-19 20:10:03,900 [INFO]   [Email] Marked email as unread.
+
+
+# ===== SCENARIO 10f: Phone Fallback - No Phone Number on Item =====
+# Store number is invalid and no contact phone is available — phone fallback skipped entirely.
+2026-05-19 20:15:00,123 [INFO] Found 1 approved item(s) to process.
+2026-05-19 20:15:00,456 [INFO] Item 1907 status updated to 'Processing'.
+2026-05-19 20:15:00,457 [INFO] Processing store 89999...
+2026-05-19 20:15:00,458 [INFO]   Params: contact=Staff, phone=Store, subject=Question, case_type=Other
+2026-05-19 20:15:01,200 [INFO]   [Email Verification] [OK] Found email in 'Inbox/Create CRM Case' at 2026-05-19T20:12:00Z from no-reply@zoom.us
+2026-05-19 20:15:01,500 [INFO]   No duplicate found. Creating case...
+2026-05-19 20:15:01,510 [ERROR] Invalid store number for item 1907 (store 89999): No account found for store number '89999'.
+2026-05-19 20:15:01,900 [INFO] Item 1907 status updated to 'Invalid Store Number'.
+2026-05-19 20:15:01,901 [INFO]   Item 1907 marked as Invalid Store Number: No account found for store number '89999'.
+2026-05-19 20:15:01,902 [INFO]   [Email] Moving verified email back to Inbox and marking unread...
+2026-05-19 20:15:02,400 [INFO]   [Email] Moved email to Inbox.
+2026-05-19 20:15:02,900 [INFO]   [Email] Marked email as unread.
 
 
 # ===== SCENARIO 11: Multiple Items in One Poll =====
@@ -228,7 +451,9 @@ Case jjj000-kkk111-lll222 assigned to team successfully.
 2026-05-12 15:20:06,012 [INFO]   Note added to case.
 2026-05-12 15:20:06,345 [INFO]   [Email Verification] [OK]œ“ Found email in 'Internal Requests' at 2026-05-12T20:18:00Z from alice@winmarkcorporation.com
 2026-05-12 15:20:06,678 [INFO] Item 1244 status updated to 'Processed'.
-2026-05-12 15:20:06,679 [INFO] Case created for store 11111: CAS-363407-A1A1A1 (ID: jjj000-kkk111-lll222)
+2026-05-12 15:20:06,679 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 15:20:06,750 [INFO]   [Email] Marked as read and moved to 'Inbox / INTERNAL REQUESTS'.
+2026-05-12 15:20:06,751 [INFO] Case created for store 11111: CAS-363407-A1A1A1 (ID: jjj000-kkk111-lll222)
 2026-05-12 15:20:06,680 [INFO]   Received On: 2026-05-12T20:18:00Z
 2026-05-12 15:20:06,681 [INFO]   Created On:  2026-05-12T20:20:05Z
 2026-05-12 15:20:06,682 [INFO]   Time Difference: 0:02:05 (Created - Received)
@@ -239,13 +464,17 @@ Case jjj000-kkk111-lll222 assigned to team successfully.
 2026-05-12 15:20:07,789 [INFO]   Increment note added to CAS-363300-B2B2B2.
 2026-05-12 15:20:08,012 [INFO]   [Email Verification] [OK]œ“ Found email in 'Emails From Franchisees' at 2026-05-12T20:16:00Z from bob@example.com
 2026-05-12 15:20:08,345 [INFO] Item 1245 status updated to 'Processed'.
+2026-05-12 15:20:08,346 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 15:20:08,400 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
 2026-05-12 15:20:08,678 [INFO] Item 1246 status updated to 'Processing'.
 2026-05-12 15:20:08,679 [INFO] Processing store 33333...
 2026-05-12 15:20:08,680 [INFO]   Params: contact=Charlie, phone=Store, subject=Software Issue, case_type=Third party
 2026-05-12 15:20:08,789 [INFO]   Time comparison: new=2026-05-12T20:17:00Z existing=2026-05-12T20:15:00Z diff=0:02:00
-2026-05-12 15:20:08,790 [INFO]   Exact duplicate (duplicate (within 5 min)): CAS-363301-C3C3C3 (owner: Matthew Alemayehu). Skipping case creation.
+2026-05-12 15:20:08,790 [INFO]   Exact duplicate (duplicate (within 1 min)): CAS-363301-C3C3C3 (owner: Matthew Alemayehu). Skipping case creation.
 2026-05-12 15:20:09,012 [INFO]   [Email Verification] [OK]œ“ Found email in 'Calls Entered' at 2026-05-12T20:17:30Z from no-reply@zoom.us
 2026-05-12 15:20:09,345 [INFO] Item 1246 status updated to 'Processed'.
+2026-05-12 15:20:09,346 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 15:20:09,400 [INFO]   [Email] Marked as read and moved to 'Inbox / Calls Entered'.
 2026-05-12 15:20:09,678 [INFO] Done. Processed 3 item(s).
 
 
@@ -279,10 +508,12 @@ Case created successfully. ID: ppp666-qqq777-rrr888
 Case ppp666-qqq777-rrr888 assigned to team successfully.
 2026-05-12 15:25:21,012 [INFO]   Note added to case.
 2026-05-12 15:25:21,345 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
-2026-05-12 15:25:51,456 [INFO]   [Email Verification] Retrying email search in ['Emails From Franchisees', 'Emails From FOMs', 'Create CRM Case']...
+2026-05-12 15:25:31,456 [INFO]   [Email Verification] Retrying email search in ['Create CRM Case', 'Create CRM Case/Retry', 'Create CRM Case/Retry 2', ['Emails From Franchisees', 'Emails From FOMs']]...
 2026-05-12 15:25:51,789 [INFO]   [Email Verification] [OK]œ“ Found email in 'Emails From Franchisees' at 2026-05-12T20:23:00Z from emily@example.com
 2026-05-12 15:25:52,012 [INFO] Item 1248 status updated to 'Processed'.
-2026-05-12 15:25:52,013 [INFO] Case created for store 55555: CAS-363409-E5E5E5 (ID: ppp666-qqq777-rrr888)
+2026-05-12 15:25:52,013 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 15:25:52,080 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
+2026-05-12 15:25:52,081 [INFO] Case created for store 55555: CAS-363409-E5E5E5 (ID: ppp666-qqq777-rrr888)
 2026-05-12 15:25:52,014 [INFO]   Received On: 2026-05-12T20:23:00Z
 2026-05-12 15:25:52,015 [INFO]   Created On:  2026-05-12T20:25:20Z
 2026-05-12 15:25:52,016 [INFO]   Time Difference: 0:02:20 (Created - Received)
@@ -299,8 +530,10 @@ Case created successfully. ID: sss999-ttt000-uuu111
 Case sss999-ttt000-uuu111 assigned to team successfully.
 2026-05-12 15:26:01,012 [INFO]   Note added to case.
 2026-05-12 15:26:01,345 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
-2026-05-12 15:26:31,456 [INFO]   [Email Verification] Retrying email search in ['Calls Entered', 'Create CRM Case']...
-2026-05-12 15:26:31,789 [WARNING]   [Email Verification] [NOT FOUND] No email found in ['Calls Entered', 'Create CRM Case'] within +/-2 minutes of 2026-05-12T20:24:00Z after retry
+2026-05-12 15:26:11,456 [INFO]   [Email Verification] Retrying email search in ['Create CRM Case', 'Create CRM Case/Retry', 'Create CRM Case/Retry 2', ['Calls Entered']]...
+2026-05-12 15:26:17,000 [INFO]   [Email Verification] Trying time-corrected search (+/-1h, +/-12h, +/-24h)...
+2026-05-12 15:26:55,789 [WARNING]   [Email Verification] [NOT FOUND] No email found in ['Calls Entered'] within +/-2 minutes of 2026-05-12T20:24:00Z or +/-1h/12h/24h offsets
+2026-05-12 15:26:55,790 [WARNING]   [Email Verification] Expected sender: no-reply@zoom.us
 2026-05-12 15:26:32,012 [INFO] Item 1249 status updated to 'Processed'.
 2026-05-12 15:26:32,013 [INFO] Case created for store 66666: CAS-363410-F6F6F6 (ID: sss999-ttt000-uuu111)
 2026-05-12 15:26:32,014 [INFO]   Received On: 2026-05-12T20:24:00Z
@@ -320,7 +553,9 @@ Case 7efbbf42-4e4e-f111-a60e-005056ad6d42 assigned to team successfully.
 2026-05-12 17:02:30,721 [INFO]   Note added to case.
 2026-05-12 17:02:31,012 [INFO]   [Email Verification] [OK] Found email in 'Calls Entered' at 2026-05-12T21:22:01Z from no-reply@zoom.us
 2026-05-12 17:02:31,318 [INFO] Item 1236 status updated to 'Processed'.
-2026-05-12 17:02:31,319 [INFO] Case created for store 80842: CAS-363380-Z2S1P7 (ID: 7efbbf42-4e4e-f111-a60e-005056ad6d42)
+2026-05-12 17:02:31,319 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 17:02:31,380 [INFO]   [Email] Marked as read and moved to 'Inbox / Calls Entered'.
+2026-05-12 17:02:31,381 [INFO] Case created for store 80842: CAS-363380-Z2S1P7 (ID: 7efbbf42-4e4e-f111-a60e-005056ad6d42)
 2026-05-12 17:02:31,319 [INFO]   Received On: 2026-05-12T21:22:00Z
 2026-05-12 17:02:31,319 [INFO]   Created On:  2026-05-12T22:02:30Z
 2026-05-12 17:02:31,319 [INFO]   Time Difference: 0:40:30 (Created - Received)
@@ -338,7 +573,9 @@ Case f5ae0d01-624e-f111-a60e-005056ad6d42 assigned to team successfully.
 2026-05-12 19:23:46,943 [INFO]   Note added to case.
 2026-05-12 19:23:47,123 [INFO]   [Email Verification] [OK] Found email in 'Calls Entered' at 2026-05-12T19:15:52Z from no-reply@zoom.us
 2026-05-12 19:23:47,596 [INFO] Item 1248 status updated to 'Processed'.
-2026-05-12 19:23:47,601 [INFO] Case created for store 21039: CAS-363387-L1T0X1 (ID: f5ae0d01-624e-f111-a60e-005056ad6d42)
+2026-05-12 19:23:47,597 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 19:23:47,660 [INFO]   [Email] Marked as read and moved to 'Inbox / Calls Entered'.
+2026-05-12 19:23:47,661 [INFO] Case created for store 21039: CAS-363387-L1T0X1 (ID: f5ae0d01-624e-f111-a60e-005056ad6d42)
 2026-05-12 19:23:47,602 [INFO]   Received On: 2026-05-12T19:15:03Z
 2026-05-12 19:23:47,602 [INFO]   Created On:  2026-05-13T00:23:46Z
 2026-05-12 19:23:47,602 [INFO]   Time Difference: 5:08:43 (Created - Received)
@@ -354,11 +591,13 @@ Found account: Clawson, Chantelle (store 21088)
 Case created successfully. ID: 85fbbf42-4e4e-f111-a60e-005056ad6d42
 Case 85fbbf42-4e4e-f111-a60e-005056ad6d42 assigned to team successfully.
 2026-05-12 17:02:34,409 [INFO]   Note added to case.
-2026-05-12 17:02:34,832 [INFO]   Found draft: 'Re: OUAC 21088 new pole display reg 4 needs installation.' -> moving to supportcenter@winmarkcorporation.com Drafts
-2026-05-12 17:02:36,640 [INFO]   Draft moved successfully (new ID: AAMkADJhYmFlYzdmLWVk...)
+2026-05-12 17:02:34,832 [INFO]   Found draft: 'Re: OUAC 21088 new pole display reg 4 needs installation.' -> creating draft reply on verified email
+2026-05-12 17:02:36,640 [INFO]   Draft reply created successfully (new ID: AAMkADJhYmFlYzdmLWVk...)
 2026-05-12 17:02:37,123 [INFO]   [Email Verification] [OK] Found email in 'Emails From Franchisees' at 2026-05-12T21:34:06Z from chantelleclawson@gmail.com
 2026-05-12 17:02:37,392 [INFO] Item 1238 status updated to 'Processed'.
-2026-05-12 17:02:37,393 [INFO] Case created for store 21088: CAS-363381-P8T5L3 (ID: 85fbbf42-4e4e-f111-a60e-005056ad6d42)
+2026-05-12 17:02:37,393 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-12 17:02:37,450 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
+2026-05-12 17:02:37,451 [INFO] Case created for store 21088: CAS-363381-P8T5L3 (ID: 85fbbf42-4e4e-f111-a60e-005056ad6d42)
 2026-05-12 17:02:37,393 [INFO]   Received On: 2026-05-12T21:34:00Z
 2026-05-12 17:02:37,393 [INFO]   Created On:  2026-05-12T22:02:34Z
 2026-05-12 17:02:37,393 [INFO]   Time Difference: 0:28:34 (Created - Received)
@@ -373,8 +612,8 @@ Case 85fbbf42-4e4e-f111-a60e-005056ad6d42 assigned to team successfully.
 2026-05-13 19:36:00,284 [INFO]   Params: contact=Bob, phone=815-459-1717, subject=Dayclose Issue, case_type=File in-use error
 2026-05-13 19:36:00,292 [WARNING]   [TIME WARNING] Received-on time '05/14/2026 07:31 PM' is in the future by 23:54:59. This is likely an AI extraction error.
 2026-05-13 19:36:02,613 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
-2026-05-13 19:36:12,615 [INFO]   [Email Verification] Retrying email search in ['Calls Entered', 'Create CRM Case']...
-2026-05-13 19:36:13,500 [INFO]   [Email Verification] Trying time-corrected search (+/-12h, +/-24h)...
+2026-05-13 19:36:12,615 [INFO]   [Email Verification] Retrying email search in ['Create CRM Case', 'Create CRM Case/Retry', 'Create CRM Case/Retry 2', ['Calls Entered']]...
+2026-05-13 19:36:13,500 [INFO]   [Email Verification] Trying time-corrected search (+/-1h, +/-12h, +/-24h)...
 2026-05-13 19:36:14,321 [INFO]   [Email Verification] [OK] Found email with -24h (wrong date) correction in 'Calls Entered' at 2026-05-13T19:31:15Z from no-reply@zoom.us
 2026-05-13 19:36:14,322 [INFO]   [Email Verification] Correcting received time from 2026-05-15T00:31:00Z to 2026-05-14T00:31:00Z
 2026-05-13 19:36:14,700 [INFO]   [Time Correction] Corrected received_on to 05/13/2026 7:31 pm (UTC: 2026-05-14T00:31:00Z)
@@ -385,7 +624,9 @@ Case created successfully. ID: 2b3402e1-2c4f-f111-a60e-005056ad6d42
 Case 2b3402e1-2c4f-f111-a60e-005056ad6d42 assigned to team successfully.
 2026-05-13 19:36:15,500 [INFO]   Note added to case.
 2026-05-13 19:36:16,000 [INFO] Item 1353 status updated to 'Processed'.
-2026-05-13 19:36:16,001 [INFO] Case created for store 11008: CAS-363494-H4V9Q2 (ID: 2b3402e1-2c4f-f111-a60e-005056ad6d42)
+2026-05-13 19:36:16,001 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-13 19:36:16,060 [INFO]   [Email] Marked as read and moved to 'Inbox / Calls Entered'.
+2026-05-13 19:36:16,061 [INFO] Case created for store 11008: CAS-363494-H4V9Q2 (ID: 2b3402e1-2c4f-f111-a60e-005056ad6d42)
 2026-05-13 19:36:16,002 [INFO]   Received On: 2026-05-14T00:31:00Z
 2026-05-13 19:36:16,003 [INFO]   Created On:  2026-05-14T00:36:00Z
 2026-05-13 19:36:16,004 [INFO]   Time Difference: 0:05:00 (Created - Received)
@@ -399,8 +640,8 @@ Case 2b3402e1-2c4f-f111-a60e-005056ad6d42 assigned to team successfully.
 2026-05-13 19:40:00,502 [INFO] Processing store 55555...
 2026-05-13 19:40:00,502 [INFO]   Params: contact=Jane, phone=555-1234, subject=Software Issue, case_type=Third party
 2026-05-13 19:40:02,000 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
-2026-05-13 19:40:12,001 [INFO]   [Email Verification] Retrying email search in ['Emails From Franchisees', 'Emails From FOMs', 'Create CRM Case']...
-2026-05-13 19:40:13,000 [INFO]   [Email Verification] Trying time-corrected search (+/-12h, +/-24h)...
+2026-05-13 19:40:12,001 [INFO]   [Email Verification] Retrying email search in ['Create CRM Case', 'Create CRM Case/Retry', 'Create CRM Case/Retry 2', ['Emails From Franchisees', 'Emails From FOMs']]...
+2026-05-13 19:40:13,000 [INFO]   [Email Verification] Trying time-corrected search (+/-1h, +/-12h, +/-24h)...
 2026-05-13 19:40:13,500 [INFO]   [Email Verification] [OK] Found email with +12h (AM/PM swap) correction in 'Emails From Franchisees' at 2026-05-14T00:40:30Z from jane@example.com
 2026-05-13 19:40:13,501 [INFO]   [Email Verification] Correcting received time from 2026-05-13T12:40:00Z to 2026-05-14T00:40:00Z
 2026-05-13 19:40:13,700 [INFO]   [Time Correction] Corrected received_on to 05/13/2026 7:40 pm (UTC: 2026-05-14T00:40:00Z)
@@ -411,14 +652,85 @@ Case created successfully. ID: aaa111-bbb222-ccc333
 Case aaa111-bbb222-ccc333 assigned to team successfully.
 2026-05-13 19:40:14,300 [INFO]   Note added to case.
 2026-05-13 19:40:14,700 [INFO] Item 1360 status updated to 'Processed'.
-2026-05-13 19:40:14,701 [INFO] Case created for store 55555: CAS-363500-X1Y2Z3 (ID: aaa111-bbb222-ccc333)
+2026-05-13 19:40:14,701 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-05-13 19:40:14,760 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
+2026-05-13 19:40:14,761 [INFO] Case created for store 55555: CAS-363500-X1Y2Z3 (ID: aaa111-bbb222-ccc333)
 2026-05-13 19:40:14,702 [INFO]   Received On: 2026-05-14T00:40:00Z
 2026-05-13 19:40:14,703 [INFO]   Created On:  2026-05-14T00:40:14Z
 2026-05-13 19:40:14,704 [INFO]   Time Difference: 0:00:14 (Created - Received)
 
 
-# ===== SCENARIO 20: No Approved Items =====
+# ===== SCENARIO 20: Timezone/DST Error - Time-Corrected (+1h) =====
+# AI entered 4:11 PM instead of 5:11 PM (1-hour timezone/DST error).
+# Email verification finds email 1 hour later, corrects the time, then creates the case with the right time.
+2026-06-01 17:13:29,975 [INFO] Item 3303 status updated to 'Processing'.
+2026-06-01 17:13:29,976 [INFO] Processing store 80917...
+2026-06-01 17:13:29,976 [INFO]   Params: contact=Marcie, phone=Store, subject=Software Issue, case_type=Tango
+2026-06-01 17:13:34,532 [INFO]   [Email Verification] Email not found on first check. Waiting 10 seconds for email to be moved...
+2026-06-01 17:13:44,532 [INFO]   [Email Verification] Retrying email search in ['Create CRM Case', 'Create CRM Case/Retry', 'Create CRM Case/Retry 2', ['Emails From Franchisees', 'Emails From FOMs']]...
+2026-06-01 17:13:49,221 [INFO]   [Email Verification] Trying time-corrected search (+/-1h, +/-12h, +/-24h)...
+2026-06-01 17:13:50,100 [INFO]   [Email Verification] [OK] Found email with +1h (timezone/DST error) correction in 'Emails From Franchisees' at 2026-06-01T22:11:30Z from marcie.shaw.webster@gmail.com
+2026-06-01 17:13:50,101 [INFO]   [Email Verification] Correcting received time from 2026-06-01T21:11:00Z to 2026-06-01T22:11:00Z
+2026-06-01 17:13:50,300 [INFO]   [Time Correction] Corrected received_on to 06/01/2026 5:11 pm (UTC: 2026-06-01T22:11:00Z)
+2026-06-01 17:13:50,500 [INFO]   [Time Correction] Updated SharePoint: Dateandtime=06/01/2026, Time=5:11 pm
+2026-06-01 17:13:50,700 [INFO]   No duplicate found. Creating case...
+Found account: Shaw, Marcie (store 80917)
+Case created successfully. ID: ddd444-eee555-fff666
+Case ddd444-eee555-fff666 assigned to team successfully.
+2026-06-01 17:13:51,100 [INFO]   Note added to case.
+2026-06-01 17:13:51,500 [INFO] Item 3303 status updated to 'Processed'.
+2026-06-01 17:13:51,501 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-06-01 17:13:51,560 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
+2026-06-01 17:13:51,561 [INFO] Case created for store 80917: CAS-365227-F9K8V1 (ID: ddd444-eee555-fff666)
+2026-06-01 17:13:51,502 [INFO]   Received On: 2026-06-01T22:11:00Z
+2026-06-01 17:13:51,503 [INFO]   Created On:  2026-06-01T22:13:51Z
+2026-06-01 17:13:51,504 [INFO]   Time Difference: 0:02:51 (Created - Received)
+
+
+# ===== SCENARIO 21: No Approved Items =====
 2026-05-12 15:30:10,123 [INFO] No approved items to process.
+# (was SCENARIO 20 before timezone/DST scenario was added)
+
+
+# ===== SCENARIO 22: CRM Connectivity Failure - Auto-Retry Succeeds =====
+# CRM connection fails on first two attempts but recovers on the 3rd.
+# 3 attempts total, 10 seconds apart. Item processes normally after recovery.
+2026-07-02 19:19:13,854 [INFO] Found 1 approved item(s) to process.
+2026-07-02 19:19:14,495 [INFO] Item 6426 status updated to 'Processing'.
+2026-07-02 19:19:14,496 [INFO] Processing store 80288...
+2026-07-02 19:19:14,496 [INFO]   Params: contact=Amy, phone=512-358-8888, subject=Locked Buy, case_type=Active
+2026-07-02 19:19:16,241 [INFO]   [Email Verification] [OK] Found email in 'Inbox/Create CRM Case' at 2026-07-03T00:17:02Z from amy_chung94404@yahoo.com
+2026-07-02 19:19:16,500 [WARNING]   [CRM] Network error on attempt 1/3, retrying in 10s: HTTPSConnectionPool(host='winmarkcrm.winmarkcorporation.com', port=444): Max retries exceeded with url: /api/data/v8.2/accounts?... (Caused by ConnectTimeoutError(...))
+2026-07-02 19:19:26,501 [WARNING]   [CRM] Network error on attempt 2/3, retrying in 10s: HTTPSConnectionPool(host='winmarkcrm.winmarkcorporation.com', port=444): Max retries exceeded with url: /api/data/v8.2/accounts?... (Caused by ConnectTimeoutError(...))
+2026-07-02 19:19:36,502 [INFO]   No duplicate found. Creating case...
+2026-07-02 19:19:36,900 [INFO]   Note added to case.
+2026-07-02 19:19:37,500 [INFO] Item 6426 status updated to 'Processed'.
+2026-07-02 19:19:37,501 [INFO]   [Email] Marking verified email as read and moving to correct folder.
+2026-07-02 19:19:39,100 [INFO]   [Email] Marked as read and moved to 'Inbox / Emails From Franchisees'.
+2026-07-02 19:19:39,102 [INFO] Case created for store 80288: CAS-367739-R0Y6X1 (ID: d8ba760e-7576-f111-a612-005056ad6d42)
+2026-07-02 19:19:39,102 [INFO]   Received On: 2026-07-03T00:17:00Z
+2026-07-02 19:19:39,102 [INFO]   Created On:  2026-07-03T00:19:36Z
+2026-07-02 19:19:39,102 [INFO]   Time Difference: 0:02:36 (Created - Received)
+2026-07-02 19:19:39,102 [INFO] Processed 1 case(s) this cycle.
+
+
+# ===== SCENARIO 23: CRM Connectivity Failure - All Retries Exhausted =====
+# All 3 CRM connection attempts fail. Item marked Failed, email returned to Inbox unread.
+# Requires manual re-approval in SharePoint to retry.
+2026-06-19 08:59:04,965 [INFO] Found 1 approved item(s) to process.
+2026-06-19 08:59:05,511 [INFO] Item 5084 status updated to 'Processing'.
+2026-06-19 08:59:05,512 [INFO] Processing store 80521...
+2026-06-19 08:59:05,512 [INFO]   Params: contact=Mari, phone=843-407-7041, subject=Dayclose Issue, case_type=Dayclose Failure
+2026-06-19 08:59:07,007 [INFO]   [Email Verification] [OK] Found email in 'Inbox/Create CRM Case' at 2026-06-19T13:56:33Z from mkhaney618@gmail.com
+2026-06-19 08:59:07,500 [WARNING]   [CRM] Network error on attempt 1/3, retrying in 10s: HTTPSConnectionPool(host='winmarkcrm.winmarkcorporation.com', port=444): Read timed out. (read timeout=30)
+2026-06-19 08:59:17,501 [WARNING]   [CRM] Network error on attempt 2/3, retrying in 10s: HTTPSConnectionPool(host='winmarkcrm.winmarkcorporation.com', port=444): Read timed out. (read timeout=30)
+2026-06-19 08:59:45,687 [ERROR] Failed to process item 5084 (store 80521): HTTPSConnectionPool(host='winmarkcrm.winmarkcorporation.com', port=444): Read timed out. (read timeout=30)
+2026-06-19 08:59:46,158 [WARNING] Failed to update with error message, retrying without it...
+2026-06-19 08:59:46,781 [INFO] Item 5084 status updated to 'Failed' (without error message).
+2026-06-19 08:59:46,783 [INFO]   Item 5084 marked as Failed
+2026-06-19 08:59:46,783 [INFO]   [Email] Moving verified email back to Inbox and marking unread...
+2026-06-19 08:59:47,199 [INFO]   [Email] Moved email to Inbox.
+2026-06-19 08:59:47,584 [INFO]   [Email] Marked email as unread.
 
 
 ========================================
@@ -432,14 +744,59 @@ KEY PATTERNS TO LOOK FOR:
 2. INCREMENT (SAME-SUBJECT):
    - "Increment (same-subject): {ticket_number}"
    - "Increment note added to {ticket_number}"
+   - Note: Active cases for any subject.
+   - Note: When multiple active cases share the same subject, the one matching the incoming case type is preferred.
+     Falls back to the most recently created case if no case-type match is found.
 
-3. INCREMENT (RESOLVED-SAME-DAY-SUBJECT):
+2B. INCREMENT (RESOLVED-SAME-DAY-SUBJECT) — allowlisted only:
    - "Increment (resolved-same-day-subject): {ticket_number}"
-   - "Increment note added to {ticket_number}"
+   - Rules in RESOLVED_INCREMENT_RULES (sharepoint_poller.py):
+     * Any case type: Appointment, Checks, Internal Request, Quote, Question,
+       Reports Issue, Winmark Connect
+     * Specific: Software Issue + Tango only
+   - All other subjects/types: if only a resolved-today case exists, a NEW case is created.
 
-4. DUPLICATE (WITHIN 5 MIN):
-   - "Exact duplicate (duplicate (within 5 min)): {ticket_number}"
+3. INCREMENT (LINKED-SUBJECT):
+   - "Increment (linked-subject): {ticket_number}" - active case matched the other side of a subject link
+   - "Increment (resolved-linked-subject): {ticket_number}" - resolved-today match on the other side;
+     only when the incoming subject/case-type matches RESOLVED_INCREMENT_RULES
+   - Links defined in LINKED_SUBJECTS in sharepoint_poller.py (all bidirectional):
+     * Inventory Issue (any type) <-> Question + Inventory
+     * Appointment (any type) <-> Question (any type)
+     * Question (any type) <-> Quote + New store
+     * Quote + Server <-> Hardware Issue + Server
+     * Appointment + POS <-> Hardware Issue + POS
+     * Appointment + Server <-> Hardware Issue + Server
+     * Appointment + Pole Display <-> Hardware Issue + Pole Display
+     * Appointment + Internet/Firewall/CDE <-> Internet/Network Issue + Firewall
+     * Appointment + Ingenico <-> Internet/Network Issue + CCT/CDE
+     * Appointment + Software/DRS Update <-> Software Issue + Software Update
+     * Hardware Issue + POS <-> Internet/Network Issue + CCT/CDE
+     * Hardware Issue + Cash Drawer <-> Printer + Receipt
+     * Hardware Issue + POS <-> DRS Access Issue (any type)
+     * Hardware Issue + Server <-> DRS Access Issue (any type)
+     * Hardware Issue + POS <-> Software Issue + Software Update
+     * Hardware Issue + Server <-> Software Issue + Software Update
+     * Hardware Issue + POS <-> Software Issue + General DRS Issue
+     * Hardware Issue + Server <-> Software Issue + General DRS Issue
+     * DRS Access Issue (any type) <-> Software Issue + Software Update
+     * DRS Access Issue (any type) <-> Software Issue + General DRS Issue
+     * Hardware Issue + POS <-> Software Issue + Windows Issue
+     * Winmark Connect + Issues <-> Reports Issue + Reg/Day/Month/Year
+     * Winmark Connect + Questions <-> Reports Issue + Reg/Day/Month/Year
+     * Winmark Connect + Issues <-> Reports Issue + Other
+     * Winmark Connect + Questions <-> Reports Issue + Other
+     * Internet/Network Issue (any type) <-> DRS Access Issue (any type)
+     * Internet/Network Issue (any type) <-> Dayclose Issue (any type)
+     * DRS Access Issue (any type) <-> Dayclose Issue (any type)
+     * Reports Issue (any type) <-> Question + Report
+
+4. DUPLICATE (WITHIN 1 MIN):
+   - "Exact duplicate (duplicate (within 1 min)): {ticket_number}"
    - "Time comparison: new={time} existing={time} diff={diff}"
+   - Note: Checks cases created today that are active OR resolved. A re-submitted
+     email with the same received-on minute as an already-resolved case is Duplicate,
+     not a new case / not an Increment.
 
 5. TIME WARNINGS:
    - "[TIME WARNING] Received-on time" - Future date
@@ -447,46 +804,101 @@ KEY PATTERNS TO LOOK FOR:
 
 6. EMAIL VERIFICATION:
    - "[OK] Found email in '{folder}' at {time} from {email}" - Success (immediate)
-   - "[OK] Found email in 'Create CRM Case/Retry' at {time} from {email}" - Found in Retry subfolder
-   - "[OK] Found email in 'Create CRM Case/Retry 2' at {time} from {email}" - Found in Retry 2 subfolder
+   - "[OK] Found email in 'Inbox/Create CRM Case' at {time} from {email}" - Found in staging folder
+   - "[OK] Found email in 'Inbox/Create CRM Case/Retry' at {time} from {email}" - Found in Retry subfolder
+   - "[OK] Found email in 'Inbox/Create CRM Case/Retry 2' at {time} from {email}" - Found in Retry 2 subfolder
    - "Email not found on first check. Waiting 10 seconds" - Retry initiated
-   - "Retrying email search in {folders}" - Second attempt (same folders, incl. Create CRM Case)
-   - "[NOT FOUND] No email found in..." - Not found after retry
-   - "Expected sender: {email}" - Shows expected email for Email/Internal origins
-   - Note: 'Create CRM Case', 'Create CRM Case/Retry', and 'Create CRM Case/Retry 2' are always searched on BOTH attempts
+   - "Retrying email search in ['Create CRM Case', 'Create CRM Case/Retry', 'Create CRM Case/Retry 2', {folders}]" - Second attempt
+   - "[NOT FOUND] No email found in {origin_folders} ... or +/-1h/12h/24h offsets" - Not found after all attempts
+   - "Expected sender: {email}" - ALL origins now show this when email is not found (check_sender=true for all)
+   - Note: Search priority on every attempt: Inbox/Create CRM Case -> Retry -> Retry 2 -> origin folder(s) -> Inbox
    - Note: Retry/Retry 2 subfolders are used by folder_monitor.py to stage emails awaiting Copilot retry
 
+6b. EMAIL MOVEMENT (on successful processing):
+   - "[Email] Marking verified email as read and moving to correct folder." - always logged before move
+   - "[Email] Marked as read and moved to 'Inbox / {folder}'." - confirms destination
+   - NOTE: Only fires when email verification found and returned a msg_id.
+   - NOTE: On error (invalid store, validation/CRM failure): email is moved to Inbox UNREAD instead.
+   - NOTE: No email movement when email verification returned NOT FOUND.
+   - NOTE: "[Email] Failed to reroute email to 'Inbox / ...': {error}" (WARNING) if move fails.
+
 7. TIME-CORRECTED EMAIL VERIFICATION (runs BEFORE case creation):
-   - "Trying time-corrected search (+/-12h, +/-24h)..." - Offset search initiated
-   - "[OK] Found email with {offset} correction in '{folder}'" - Found at offset
+   - "Trying time-corrected search (+/-1h, +/-12h, +/-24h; staging folders first)..." - Offset search initiated
+   - Two passes: (1) staging folders only (Create CRM Case / Retry / Retry 2 / Inbox),
+     then (2) origin destination folders (e.g. Calls Entered) only if staging found nothing.
+     This avoids latching onto an older Zoom email in Calls Entered at -1h when the real
+     email is still in staging at +1h.
+   - Within each +/- pair, try the offset whose corrected time is closer to now first
+     (case creation usually happens soon after the real call).
+   - "+/-1h (timezone/DST error)" - AI off by 1 hour (e.g. CDT vs CST confusion)
+   - "+/-12h (AM/PM swap)" - AI entered wrong AM/PM
+   - "+/-24h (wrong date)" - AI entered wrong date
+   - "[OK] Found email with {offset} correction in '{folder}' ... ({staging|destination} pass)"
    - "Correcting received time from {old} to {new}" - Time correction applied
    - "[Time Correction] Corrected received_on to {local} (UTC: {iso})" - received_on fixed
    - "[Time Correction] Updated SharePoint: Dateandtime={date}, Time={time}" - SharePoint updated
+   - "[NOT FOUND] No email found in ... or +/-1h/12h/24h offsets" - All offsets exhausted
    - Case is then created with the corrected time (no post-creation CRM update needed)
 
 8. DRAFT REPLY:
-   - "Found draft:" - Immediate find
-   - "Draft not found on first check" + "Retrying" - Retry logic
-   - "No draft found...after retry" - Failed to find
+   - When DraftReply=True and email verification found a msg_id:
+     * Finds personal draft addressed to the store email
+     * Creates a DRAFT reply on the verified Support Center email (createReply — not sent)
+     * Pastes personal draft body into that reply draft
+     * Adds subject/case-type attachments (see DRAFT_ATTACHMENT_RULES in sharepoint_poller.py)
+     * Deletes the personal draft
+   - "Found draft: '{subject}' -> creating draft reply on verified email"
+   - "Draft attachment added: {filename}"
+   - "Draft reply created successfully (new ID: ...)"
+   - If no verified email: falls back to plain move into shared Drafts
+     * "Found draft: '{subject}' -> moving to {mailbox} Drafts"
+     * "Draft moved successfully (new ID: ...)"
+   - "Draft not found (attempt X/7, searched N draft(s)). Waiting 10s before retry..."
+   - "No draft found in {mailbox} addressed to '{email}' after 7 attempts (60s). ..."
+   - Attachment rules (example): subject Printer + case type Label -> Zebra printer troubleshooting guide.pdf
 
 9. VALIDATION ERRORS (bad subject / case type):
    - "Validation error for item {id} (store {store}): {reason}"
    - "Item {id} marked as Failed: {reason}"
 
-9b. INVALID STORE NUMBER (store not in CRM):
-   - "Invalid store number for item {id} (store {store}): No account found for store number '{store}'."
-   - "Item {id} marked as Invalid Store Number: No account found for store number '{store}'."
+9b. INVALID STORE NUMBER (store not in CRM) — phone fallback attempted:
+   - "Store '{store}' not found/inactive. Attempting phone fallback with: {phone}" - fallback triggered
+   - "Phone fallback: no CRM account found for {phone}." - phone also found nothing
+   - "Invalid store number for item {id} (store {store}): No account found for store number '{store}'. Phone fallback also found no match for {phone}."
+   - "Item {id} marked as Invalid Store Number: ..."
    - "[Email] Moving verified email back to Inbox and marking unread..."
    - "[Email] Moved email to Inbox."
    - "[Email] Marked email as unread."
+   - NOTE: If contact_phone is blank, the phone fallback lines are skipped and error goes straight to Invalid Store Number.
 
-9c. INVALID STORE NUMBER (store inactive/closed in CRM):
-   - "Invalid store number for item {id} (store {store}): Account for store number '{store}' is inactive/closed."
-   - "Item {id} marked as Invalid Store Number: Account for store number '{store}' is inactive/closed."
-   - Same email-to-Inbox flow as 9b above.
-   - NOTE: The key distinction is the error message suffix:
+9c. INVALID STORE NUMBER (store inactive/closed in CRM) — phone fallback attempted:
+   - Same phone fallback lines as 9b, then:
+   - "Invalid store number for item {id} (store {store}): Account for store number '{store}' is inactive/closed. Phone fallback also found no match for {phone}."
+   - NOTE: The key distinction in the original error remains:
        * Never existed  -> "No account found for store number '{store}'."
        * Inactive/closed -> "Account for store number '{store}' is inactive/closed."
+
+9d. PHONE FALLBACK — SUCCESS (wrong store number corrected via phone):
+   - "Store '{wrong}' not found/inactive. Attempting phone fallback with: {phone}"
+   - "Phone fallback matched: store {correct} ({name}) via phone {phone}. Correcting store number from '{wrong}' to '{correct}'."
+   - "[Store Correction] Updated SharePoint Storenumber from '{wrong}' to '{correct}'."
+   - "Found account: {name} (store {correct})" — duplicate checks then run with corrected store
+   - After Processed: standard email movement applies (see pattern 6b above).
+   - NOTE: If SharePoint store update fails: "[Store Correction] Could not update SharePoint Storenumber: {error}" (WARNING)
+
+9e. PHONE FALLBACK — AMBIGUOUS (multiple CRM accounts match):
+   - "Store '{store}' not found/inactive. Attempting phone fallback with: {phone}"
+   - "Phone fallback ambiguous: Phone '{phone}' matched {N} accounts: store {s1} ({n1}), store {s2} ({n2}). Cannot determine correct account." (WARNING)
+   - "Invalid store number for item {id} (store {store}): ... Phone fallback was ambiguous: ..."
+   - Same email-to-Inbox flow as 9b above.
+
+10b. CRM CONNECTIVITY RETRIES (transient server errors):
+   - "[CRM] Network error on attempt {X}/3, retrying in 10s: {error}" (WARNING) - connect timeout or connection reset
+   - "[CRM] Server error {5xx} on attempt {X}/3, retrying in 10s..." (WARNING) - CRM returned 5xx
+   - 3 attempts total, 10 seconds apart; covers ConnectTimeoutError, ReadTimeout, ConnectionResetError
+   - If retries succeed: processing continues normally (no Failed status, no email move)
+   - If all 3 fail: raises to outer handler -> "Failed to process item {id} (store {store}): {error}" (ERROR)
+     then email returned to Inbox unread and item marked Failed (requires manual re-approval)
 
 10. STATUS UPDATES:
     - "Item {id} status updated to 'Processing'"
@@ -775,6 +1187,153 @@ NOTES:
 2026-05-26 10:12:35,777 [INFO]   Email moved to Internal Requests.
 2026-05-26 10:12:35,779 [INFO] Total cases created this cycle: 15
 2026-05-26 10:12:35,780 [INFO] Sleeping 1800s until next check...
+
+
+========================================
+DRS UPDATE POLLER LOG SAMPLES (drs_poller.log)
+========================================
+
+NOTES:
+- Script: drs_update_poller.py  (run via start_drs_poller.bat)
+- Monitors: supportcenter@winmarkcorporation.com / Inbox / INTERNAL REQUESTS / Splunk Alerts / Automate DRS Updates
+- Processes unread emails with subject: "{store} - Updated to DRS {version}, please update CRM"
+- On success: marks email as read, moves to Inbox / INTERNAL REQUESTS / Splunk Alerts
+- On failure: leaves email UNREAD, moves to Inbox for manual review
+- Polls every 60 seconds
+- CRM field updated: win_drsversion1 (OptionSet/dropdown)
+
+
+# ===== DRS SCENARIO 1: Poller Startup =====
+2026-06-10 16:09:15,000 [INFO] ============================================================
+2026-06-10 16:09:15,001 [INFO] Splunk DRS Email Monitor -> CRM DRS Version Updater
+2026-06-10 16:09:15,001 [INFO] Mailbox:        supportcenter@winmarkcorporation.com
+2026-06-10 16:09:15,001 [INFO] Monitor folder: Inbox -> INTERNAL REQUESTS -> Splunk Alerts -> Automate DRS Updates
+2026-06-10 16:09:15,002 [INFO] Processed dest: Inbox -> INTERNAL REQUESTS -> Splunk Alerts
+2026-06-10 16:09:15,002 [INFO] CRM field:      win_drsversion1
+2026-06-10 16:09:15,002 [INFO] Poll interval:  60s
+2026-06-10 16:09:15,002 [INFO] ============================================================
+2026-06-10 16:09:15,500 [INFO] Graph API token acquired/refreshed.
+2026-06-10 16:09:15,501 [INFO] Locating monitor folder:   Inbox -> INTERNAL REQUESTS -> Splunk Alerts -> Automate DRS Updates
+2026-06-10 16:09:16,100 [INFO] Found folder 'INTERNAL REQUESTS' (ID: AQMkAD...)
+2026-06-10 16:09:16,500 [INFO] Found folder 'Splunk Alerts' (ID: AQMkAD...)
+2026-06-10 16:09:16,900 [INFO] Found folder 'Automate DRS Updates' (ID: AAMkAD...)
+2026-06-10 16:09:16,901 [INFO] Locating processed folder: Inbox -> INTERNAL REQUESTS -> Splunk Alerts
+2026-06-10 16:09:17,300 [INFO] Found folder 'INTERNAL REQUESTS' (ID: AQMkAD...)
+2026-06-10 16:09:17,700 [INFO] Found folder 'Splunk Alerts' (ID: AQMkAD...)
+2026-06-10 16:09:17,701 [INFO] Folder discovery complete.
+2026-06-10 16:09:17,702 [INFO] Fetching DRS Version options from CRM field 'win_drsversion1'...
+2026-06-10 16:09:17,900 [INFO] Loaded 82 DRS version options from CRM.
+2026-06-10 16:09:17,901 [INFO] Ready. Polling for new DRS update emails...
+
+
+# ===== DRS SCENARIO 2: Quiet Poll - No Unread Emails =====
+# (No output logged during quiet cycles)
+
+
+# ===== DRS SCENARIO 3: Successful DRS Update - Exact Label Match =====
+# Email subject: "21023 - Updated to DRS 8.9.7 GENERAL (322), please update CRM"
+2026-06-10 16:09:39,000 [INFO] Found 1 unread email(s) to process.
+2026-06-10 16:09:39,001 [INFO] Processing: store=21023, DRS version='8.9.7 GENERAL (322)' (received 2026-06-10T20:45:00Z)
+2026-06-10 16:09:39,500 [INFO] Found CRM account: Brininstool, Mike (ID: 5aa46db8-d581-e711-80d2-005056a746f2)
+2026-06-10 16:09:39,501 [INFO] Resolved '8.9.7 GENERAL (322)' -> code 100000082
+Account 5aa46db8-d581-e711-80d2-005056a746f2 updated successfully.
+2026-06-10 16:09:39,938 [INFO] Store 21023 (Brininstool, Mike): DRS Version updated to '8.9.7 GENERAL (322)'.
+2026-06-10 16:09:40,200 [INFO] Email marked as read and moved to 'Splunk Alerts'.
+2026-06-10 16:09:40,201 [INFO] Processed 1 DRS update(s) this cycle.
+
+
+# ===== DRS SCENARIO 4: Successful DRS Update - Prefix Match (partial version string) =====
+# Email subject: "80673 - Updated to DRS 8.9.7, please update CRM"
+# "8.9.7" prefix-matches "8.9.7 general (322)" in CRM — general release preferred.
+2026-06-10 16:15:00,000 [INFO] Found 1 unread email(s) to process.
+2026-06-10 16:15:00,001 [INFO] Processing: store=80673, DRS version='8.9.7' (received 2026-06-10T21:10:00Z)
+2026-06-10 16:15:00,500 [INFO] Found CRM account: Nguyen, Peter (ID: 6bb57ec9-e692-e811-80d3-005056a746f2)
+2026-06-10 16:15:00,501 [INFO] Multiple matches for '8.9.7'; selected general: '8.9.7 general (322)'
+2026-06-10 16:15:00,502 [INFO] Resolved '8.9.7' -> code 100000082
+Account 6bb57ec9-e692-e811-80d3-005056a746f2 updated successfully.
+2026-06-10 16:15:01,100 [INFO] Store 80673 (Nguyen, Peter): DRS Version updated to '8.9.7'.
+2026-06-10 16:15:01,400 [INFO] Email marked as read and moved to 'Splunk Alerts'.
+
+
+# ===== DRS SCENARIO 5: Multiple Emails in One Poll =====
+2026-06-10 16:20:00,000 [INFO] Found 3 unread email(s) to process.
+2026-06-10 16:20:00,001 [INFO] Processing: store=21023, DRS version='8.9.7 GENERAL (322)' (received 2026-06-10T21:15:00Z)
+2026-06-10 16:20:00,500 [INFO] Found CRM account: Brininstool, Mike (ID: 5aa46db8-d581-e711-80d2-005056a746f2)
+2026-06-10 16:20:00,501 [INFO] Resolved '8.9.7 GENERAL (322)' -> code 100000082
+Account 5aa46db8-d581-e711-80d2-005056a746f2 updated successfully.
+2026-06-10 16:20:01,000 [INFO] Store 21023 (Brininstool, Mike): DRS Version updated to '8.9.7 GENERAL (322)'.
+2026-06-10 16:20:01,300 [INFO] Email marked as read and moved to 'Splunk Alerts'.
+2026-06-10 16:20:01,301 [INFO] Processing: store=20952, DRS version='8.9.5 GENERAL (308)' (received 2026-06-09T20:37:00Z)
+2026-06-10 16:20:01,800 [INFO] Found CRM account: Williams, Dana (ID: 7cc68fd0-e792-e811-80d3-005056a746f2)
+2026-06-10 16:20:01,801 [INFO] Resolved '8.9.5 GENERAL (308)' -> code 100000071
+Account 7cc68fd0-e792-e811-80d3-005056a746f2 updated successfully.
+2026-06-10 16:20:02,300 [INFO] Store 20952 (Williams, Dana): DRS Version updated to '8.9.5 GENERAL (308)'.
+2026-06-10 16:20:02,600 [INFO] Email marked as read and moved to 'Splunk Alerts'.
+2026-06-10 16:20:02,601 [INFO] Processing: store=11733, DRS version='8.9.7 GENERAL (322)' (received 2026-06-08T23:19:00Z)
+2026-06-10 16:20:03,100 [INFO] Found CRM account: Torres, Lisa (ID: 8dd79ge1-f893-e911-80d4-005056a746f2)
+2026-06-10 16:20:03,101 [INFO] Resolved '8.9.7 GENERAL (322)' -> code 100000082
+Account 8dd79ge1-f893-e911-80d4-005056a746f2 updated successfully.
+2026-06-10 16:20:03,600 [INFO] Store 11733 (Torres, Lisa): DRS Version updated to '8.9.7 GENERAL (322)'.
+2026-06-10 16:20:03,900 [INFO] Email marked as read and moved to 'Splunk Alerts'.
+2026-06-10 16:20:03,901 [INFO] Processed 3 DRS update(s) this cycle.
+
+
+# ===== DRS SCENARIO 6: Store Not Found in CRM =====
+# Email moved to Inbox UNREAD for manual review.
+2026-06-10 16:25:00,000 [INFO] Found 1 unread email(s) to process.
+2026-06-10 16:25:00,001 [INFO] Processing: store=99999, DRS version='8.9.7 GENERAL (322)' (received 2026-06-10T21:20:00Z)
+2026-06-10 16:25:00,500 [ERROR] Failed to process email for store 99999: No account found for store number '99999'.
+2026-06-10 16:25:00,800 [INFO] Email left unread and moved to Inbox for manual review.
+
+
+# ===== DRS SCENARIO 7: DRS Version Not Found in CRM Options =====
+# Email moved to Inbox UNREAD for manual review.
+2026-06-10 16:30:00,000 [INFO] Found 1 unread email(s) to process.
+2026-06-10 16:30:00,001 [INFO] Processing: store=21023, DRS version='9.9.9 FUTURE (999)' (received 2026-06-10T21:25:00Z)
+2026-06-10 16:30:00,500 [INFO] Found CRM account: Brininstool, Mike (ID: 5aa46db8-d581-e711-80d2-005056a746f2)
+2026-06-10 16:30:00,501 [ERROR] Failed to process email for store 21023: DRS version '9.9.9 FUTURE (999)' not found in CRM options. Run --list-drs-versions to see available options.
+2026-06-10 16:30:00,800 [INFO] Email left unread and moved to Inbox for manual review.
+
+
+# ===== DRS SCENARIO 8: Unrecognized Email Subject =====
+# Email subject doesn't match expected pattern — marked as read, left in place.
+2026-06-10 16:35:00,000 [INFO] Found 1 unread email(s) to process.
+2026-06-10 16:35:00,001 [WARNING] Skipping unrecognized email: 'FW: General announcement' (from alerts@splunkcloud.com) — marking as read.
+
+
+========================================
+DRS UPDATE POLLER KEY PATTERNS:
+========================================
+
+1. STARTUP:
+   - "Splunk DRS Email Monitor -> CRM DRS Version Updater"
+   - "Mailbox:        {mailbox}"
+   - "Monitor folder: Inbox -> INTERNAL REQUESTS -> Splunk Alerts -> Automate DRS Updates"
+   - "Processed dest: Inbox -> INTERNAL REQUESTS -> Splunk Alerts"
+   - "Ready. Polling for new DRS update emails..."
+
+2. EMAIL DETECTION:
+   - "Found {N} unread email(s) to process." - Emails present
+   - "Processing: store={store}, DRS version='{version}' (received {datetime})" - Processing begins
+   - "Skipping unrecognized email: '{subject}' ... — marking as read." - WARNING, subject didn't match
+
+3. SUCCESSFUL UPDATE:
+   - "Found CRM account: {name} (ID: {guid})"
+   - "Resolved '{version}' -> code {code}" - Exact or prefix match
+   - "Multiple matches for '{version}'; selected general: '{label}'" - General release preferred
+   - "Prefix-matched '{version}' -> '{label}'" - Single prefix match
+   - "Store {store} ({name}): DRS Version updated to '{version}'." - ** PARSED BY DASHBOARD **
+   - "Email marked as read and moved to 'Splunk Alerts'."
+   - "Processed {N} DRS update(s) this cycle."
+
+4. FAILURE (email moved to Inbox unread):
+   - "Failed to process email for store {store}: {error}" - ERROR
+   - "Email left unread and moved to Inbox for manual review."
+
+5. ERRORS:
+   - "No account found for store number '{store}'." - Store not in CRM
+   - "DRS version '{version}' not found in CRM options." - Version label unrecognized
+   - "Could not move failed email to Inbox." - Secondary failure during error handling
 
 
 ========================================
